@@ -112,6 +112,18 @@ if (room.game.finished) {
     reason: 'fold'
   });
 }
+if (room.game.finished) {
+  setTimeout(() => {
+    room.game.startGame();
+
+    io.to(code).emit('game_started', {
+      publicState: room.game.getPublicState()
+    });
+
+    console.log('♻️ New hand started in room', code);
+  }, 3000);
+}
+
 
   });
 
