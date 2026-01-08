@@ -70,6 +70,62 @@ function cleanupRoom(code) {
   }
 }
 
+// Функция для начала новой раздачи
+function startNewHand(room) {
+  try {
+    if (!room || !room.game) return false;
+    
+    // Фильтруем игроков с фишками
+    const playersWithChips = room.players.filter(p => p.chips > 0);
+    
+    if (playersWithChips.length < 2) {
+      console.log(`💰 Not enough players with chips in ${room.code}`);
+      room.game = null;
+      io.to(room.code).emit('room_update', room);
+      return false;
+    }
+    
+    // Обновляем фишки игроков в состоянии игры
+    room.game.players.forEach(gamePlayer => {
+      const roomPlayer = room.players.find(p => p.id === gamePlayer.id);
+      if (roomPlayer) {
+        gamePlayer.chips = roomPlayer.chips;
+      }
+    });
+    
+    // Запускаем новую раздачу
+    room.game.startGame();
+    
+    if (room.game.stage === 'waiting') {
+      // Игра не запустилась (недостаточно игроков)
+      room.game = null;
+      io.to(room.code).emit('room_update', room);
+      return false;
+    }
+    
+    // Отправляем карты каждому игроку
+    room.players.forEach(player => {
+      const privateState = room.game.getPlayerPrivateState(player.id);
+      if (privateState && player.chips > 0) {
+        const playerSocketId = userSockets[player.id];
+        if (playerSocketId) {
+          io.to(playerSocketId).emit('my_cards', privateState.hand);
+        }
+      }
+    });
+    
+    io.to(room.code).emit('game_started', {
+      publicState: room.game.getPublicState()
+    });
+    
+    console.log(`♻️ New hand started in ${room.code}`);
+    return true;
+  } catch (error) {
+    console.error('Error starting new hand:', error);
+    return false;
+  }
+}
+
 io.on('connection', socket => {
   console.log('🔌 User connected:', socket.id);
   
@@ -110,6 +166,11 @@ io.on('connection', socket => {
                     winner: winner ? { id: winner.id, name: winner.name } : null,
                     reason: 'disconnect'
                   });
+                  
+                  // Запускаем новую раздачу через 3 секунды
+                  setTimeout(() => {
+                    startNewHand(room);
+                  }, 3000);
                 }, 1000);
               }
             } catch (error) {
@@ -262,15 +323,20 @@ io.on('connection', socket => {
       // Отправляем карты каждому игроку
       room.players.forEach(player => {
         const privateState = room.game.getPlayerPrivateState(player.id);
-        if (privateState) {
-          socket.to(player.id).emit('my_cards', privateState.hand);
+        if (privateState && player.chips > 0) {
+          const playerSocketId = userSockets[player.id];
+          if (playerSocketId) {
+            io.to(playerSocketId).emit('my_cards', privateState.hand);
+          }
         }
       });
       
       // Отправляем карты текущему игроку напрямую
-      const currentPlayerPrivateState = room.game.getPlayerPrivateState(room.game.currentPlayer?.id);
-      if (currentPlayerPrivateState) {
-        socket.emit('my_cards', currentPlayerPrivateState.hand);
+      if (room.game.currentPlayer) {
+        const currentPlayerPrivateState = room.game.getPlayerPrivateState(room.game.currentPlayer.id);
+        if (currentPlayerPrivateState) {
+          socket.emit('my_cards', currentPlayerPrivateState.hand);
+        }
       }
       
       io.to(code).emit('game_started', {
@@ -313,48 +379,21 @@ io.on('connection', socket => {
         
         io.to(code).emit('hand_finished', {
           winner: winner ? { id: winner.id, name: winner.name } : null,
-          reason: 'showdown'
+          reason: room.game.players.filter(p => !p.folded).length === 1 ? 'fold' : 'showdown'
         });
         
-        // Через 5 секунд начинаем новую раздачу
-        setTimeout(() => {
-          try {
-            // Проверяем, что игра еще существует и есть хотя бы 2 игрока с фишками
-            if (room && room.game) {
-              const activePlayers = room.game.players.filter(p => p.chips > 0);
-              
-              if (activePlayers.length >= 2) {
-                room.game.startGame();
-                
-                // Отправляем карты каждому игроку
-                room.players.forEach(player => {
-                  const privateState = room.game.getPlayerPrivateState(player.id);
-                  if (privateState) {
-                    socket.to(player.id).emit('my_cards', privateState.hand);
-                  }
-                });
-                
-                // Отправляем карты текущему игроку
-                const currentPlayerPrivateState = room.game.getPlayerPrivateState(room.game.currentPlayer?.id);
-                if (currentPlayerPrivateState) {
-                  socket.emit('my_cards', currentPlayerPrivateState.hand);
-                }
-                
-                io.to(code).emit('game_started', {
-                  publicState: room.game.getPublicState()
-                });
-                
-                console.log(`♻️ New hand started in ${code}`);
-              } else {
-                console.log(`💰 Not enough players with chips in ${code}`);
-                room.game = null;
-                io.to(code).emit('room_update', room);
-              }
-            }
-          } catch (error) {
-            console.error('Error starting new hand:', error);
+        // Обновляем фишки игроков в комнате
+        room.players.forEach(roomPlayer => {
+          const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
+          if (gamePlayer) {
+            roomPlayer.chips = gamePlayer.chips;
           }
-        }, 5000);
+        });
+        
+        // Через 3 секунды начинаем новую раздачу
+        setTimeout(() => {
+          startNewHand(room);
+        }, 3000);
       }
       
       // После действия, если это был ход текущего игрока, отправляем ему карты
@@ -403,9 +442,37 @@ io.on('connection', socket => {
       room.players = room.players.filter(p => p.id !== playerId);
       
       // Если игра идет, фолдим игрока
-      if (room.game) {
+      if (room.game && room.game.stage !== 'waiting') {
         try {
           room.game.playerLeave(playerId);
+          
+          // Обновляем состояние
+          io.to(code).emit('game_update', room.game.getPublicState());
+          
+          // Если игра завершена
+          if (room.game.finished) {
+            const winner = room.game.getWinner();
+            
+            setTimeout(() => {
+              io.to(code).emit('hand_finished', {
+                winner: winner ? { id: winner.id, name: winner.name } : null,
+                reason: 'player_left'
+              });
+              
+              // Обновляем фишки игроков
+              room.players.forEach(roomPlayer => {
+                const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
+                if (gamePlayer) {
+                  roomPlayer.chips = gamePlayer.chips;
+                }
+              });
+              
+              // Начинаем новую раздачу через 3 секунды если есть игроки
+              setTimeout(() => {
+                startNewHand(room);
+              }, 3000);
+            }, 1000);
+          }
         } catch (error) {
           console.error('Error handling leave in game:', error);
         }
@@ -418,7 +485,6 @@ io.on('connection', socket => {
     }
   });
 
-  // Новый обработчик для выхода из игры
   socket.on('player_leave', ({ code, playerId }) => {
     try {
       const room = rooms[code];
@@ -438,45 +504,28 @@ io.on('connection', socket => {
           // Отправляем обновленное состояние
           io.to(code).emit('game_update', room.game.getPublicState());
           
-          // Если после выхода остался один игрок или меньше
-          const activePlayers = room.players.filter(p => 
-            room.game.players.find(gp => gp.id === p.id && !gp.folded)
-          );
-          
-          if (activePlayers.length <= 1 && room.game.stage !== 'waiting') {
-            // Завершаем раздачу
+          // Если игра завершена
+          if (room.game.finished) {
+            const winner = room.game.getWinner();
+            
             setTimeout(() => {
-              if (room.game) {
-                const winner = room.game.getWinner();
-                
-                io.to(code).emit('hand_finished', {
-                  winner: winner ? { id: winner.id, name: winner.name } : null,
-                  reason: 'player_left'
-                });
-                
-                // Через 3 секунды начинаем новую раздачу если есть игроки
-                setTimeout(() => {
-                  if (room && room.game && room.players.length >= 2) {
-                    room.game.startGame();
-                    
-                    // Отправляем карты каждому игроку
-                    room.players.forEach(player => {
-                      const privateState = room.game.getPlayerPrivateState(player.id);
-                      if (privateState) {
-                        socket.to(player.id).emit('my_cards', privateState.hand);
-                      }
-                    });
-                    
-                    io.to(code).emit('game_started', {
-                      publicState: room.game.getPublicState()
-                    });
-                  } else if (room.players.length < 2) {
-                    // Недостаточно игроков, возвращаем в лобби
-                    room.game = null;
-                    io.to(code).emit('room_update', room);
-                  }
-                }, 3000);
-              }
+              io.to(code).emit('hand_finished', {
+                winner: winner ? { id: winner.id, name: winner.name } : null,
+                reason: 'player_left'
+              });
+              
+              // Обновляем фишки игроков
+              room.players.forEach(roomPlayer => {
+                const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
+                if (gamePlayer) {
+                  roomPlayer.chips = gamePlayer.chips;
+                }
+              });
+              
+              // Начинаем новую раздачу через 3 секунды
+              setTimeout(() => {
+                startNewHand(room);
+              }, 3000);
             }, 1000);
           }
         } catch (error) {
