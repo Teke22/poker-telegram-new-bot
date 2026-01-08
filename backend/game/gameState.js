@@ -85,7 +85,7 @@ class GameState {
       return;
     }
 
-    console.log(`👤 ${player.name} → ${action}`);
+    console.log(`👤 ${player.name} →`, action);
 
     if (action === 'fold') {
       player.folded = true;
@@ -99,10 +99,9 @@ class GameState {
         return;
       }
       this.nextPlayer();
-      return;
     }
 
-    if (action.type === 'bet') {
+    if (action?.type === 'bet') {
       if (this.currentBet !== 0) return;
 
       const amount = action.amount;
@@ -115,10 +114,9 @@ class GameState {
       this.lastAggressorIndex = this.currentPlayerIndex;
 
       this.nextPlayer();
-      return;
     }
 
-    if (action.type === 'call') {
+    if (action?.type === 'call') {
       const toCall = this.currentBet - this.bets[player.id];
       if (toCall <= 0 || toCall > player.chips) return;
 
@@ -127,10 +125,9 @@ class GameState {
       this.pot += toCall;
 
       this.nextPlayer();
-      return;
     }
 
-    if (action.type === 'raise') {
+    if (action?.type === 'raise') {
       const raiseTo = action.amount;
       if (raiseTo <= this.currentBet) return;
 
@@ -144,8 +141,39 @@ class GameState {
       this.lastAggressorIndex = this.currentPlayerIndex;
 
       this.nextPlayer();
-      return;
     }
+
+    // 🔹 3.7.1 — проверка завершения круга ставок
+    if (this.isBettingRoundComplete()) {
+      console.log('🔁 Betting round finished');
+      this.resetBetsForNextRound();
+      // stage пока не меняем (flop/turn/river — следующий шаг)
+    }
+  }
+
+  // 🔹 3.7.1 — ВСЕ УРАВНЯЛИ?
+  isBettingRoundComplete() {
+    const activePlayers = this.players.filter(p => !p.folded);
+
+    const allMatched = activePlayers.every(
+      p => this.bets[p.id] === this.currentBet
+    );
+
+    if (!allMatched) return false;
+
+    if (this.currentBet === 0) {
+      return true; // круг чеков
+    }
+
+    return this.currentPlayerIndex === this.lastAggressorIndex;
+  }
+
+  resetBetsForNextRound() {
+    this.currentBet = 0;
+    this.lastAggressorIndex = null;
+    this.players.forEach(p => {
+      this.bets[p.id] = 0;
+    });
   }
 
   finishHand() {
