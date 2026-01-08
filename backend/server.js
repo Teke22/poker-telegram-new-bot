@@ -11,6 +11,8 @@ const RoomManager = require('./rooms/roomManager');
 const app = express();
 const server = http.createServer(app);
 
+/* ---------------- Socket.IO ---------------- */
+
 const io = new Server(server, {
   cors: {
     origin: '*',
@@ -19,19 +21,23 @@ const io = new Server(server, {
 
 const roomManager = new RoomManager();
 
-/* ---------- Middleware ---------- */
+/* ---------------- Middleware ---------------- */
+
 app.use(cors());
 app.use(express.json());
 
-/* ---------- Static Mini App ---------- */
+/* ---------------- Static Mini App ---------------- */
+
 app.use(express.static('../frontend'));
 
-/* ---------- Health check ---------- */
+/* ---------------- Health check ---------------- */
+
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-/* ---------- Telegram auth verify ---------- */
+/* ---------------- Telegram auth verify ---------------- */
+
 function verifyTelegramData(initData) {
   const secret = crypto
     .createHash('sha256')
@@ -55,31 +61,73 @@ function verifyTelegramData(initData) {
   return hmac === hash;
 }
 
-/* ---------- Socket.IO ---------- */
+/* ---------------- Socket events ---------------- */
+
 io.on('connection', (socket) => {
-  console.log('🔌 Socket connected', socket.id);
+  console.log('🔌 Socket connected:', socket.id);
 
+  /* ---------- AUTH ---------- */
   socket.on('auth', ({ initData }) => {
-    if (!verifyTelegramData(initData)) {
-      console.log('❌ Invalid Telegram auth');
+    try {
+      if (!verifyTelegramData(initData)) {
+        console.log('❌ Invalid Telegram auth');
+        socket.disconnect();
+        return;
+      }
+
+      const params = new URLSearchParams(initData);
+      const user = JSON.parse(params.get('user'));
+
+      socket.user = user;
+
+      console.log(`🟢 ${user.first_name} (${user.id}) authenticated`);
+    } catch (err) {
+      console.error('Auth error:', err);
       socket.disconnect();
-      return;
     }
-
-    const params = new URLSearchParams(initData);
-    const user = JSON.parse(params.get('user'));
-
-    socket.user = user;
-
-    console.log(`🟢 ${user.first_name} (${user.id}) connected`);
   });
 
+  /* ---------- CREATE ROOM ---------- */
+  socket.on('create_room', () => {
+    if (!socket.user) return;
+
+    const room = roomManager.createRoom(socket.user);
+
+    socket.join(room.code);
+    socket.emit('room_update', room);
+
+    console.log(`🏠 Room created: ${room.code}`);
+  });
+
+  /* ---------- JOIN ROOM ---------- */
+  socket.on('join_room', (code) => {
+    try {
+      if (!socket.user) return;
+
+      const room = roomManager.joinRoom(code, socket.user);
+
+      socket.join(room.code);
+      io.to(room.code).emit('room_update', room);
+
+      console.log(`➕ ${socket.user.first_name} joined room ${code}`);
+    } catch (err) {
+      socket.emit('error_message', err.message);
+    }
+  });
+
+  /* ---------- DISCONNECT ---------- */
   socket.on('disconnect', () => {
-    console.log('🔴 Socket disconnected', socket.id);
+    if (socket.user) {
+      roomManager.removeUserFromRooms(socket.user.id);
+      console.log(`🔴 ${socket.user.first_name} disconnected`);
+    } else {
+      console.log('🔴 Socket disconnected:', socket.id);
+    }
   });
 });
 
-/* ---------- Start server ---------- */
+/* ---------------- Start server ---------------- */
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server started on port ${PORT}`);

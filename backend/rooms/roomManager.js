@@ -1,54 +1,63 @@
-const GameState = require('../game/gameState');
-const Player = require('../game/player');
-
 class RoomManager {
   constructor() {
-    this.rooms = new Map();
+    this.rooms = new Map(); // roomCode -> room
   }
 
-  generateCode() {
-    return Math.random().toString(36).substring(2, 7).toUpperCase();
-  }
-
-  createRoom(ownerData) {
+  createRoom(owner) {
     const code = this.generateCode();
 
-    const owner = new Player(
-      ownerData.telegramId,
-      ownerData.username
-    );
-
-    const game = new GameState([owner]);
-
-    this.rooms.set(code, {
+    const room = {
       code,
-      players: [owner],
-      game
-    });
+      ownerId: owner.id,
+      players: [
+        {
+          id: owner.id,
+          name: owner.first_name,
+        },
+      ],
+      state: 'lobby', // lobby | playing
+    };
 
-    return code;
+    this.rooms.set(code, room);
+    return room;
   }
 
-  joinRoom(code, userData) {
+  joinRoom(code, user) {
     const room = this.rooms.get(code);
     if (!room) throw new Error('Комната не найдена');
 
-    if (room.players.length >= 6)
+    if (room.players.find(p => p.id === user.id)) {
+      return room;
+    }
+
+    if (room.players.length >= 6) {
       throw new Error('Комната заполнена');
+    }
 
-    const player = new Player(
-      userData.telegramId,
-      userData.username
-    );
-
-    room.players.push(player);
-    room.game.players = room.players;
+    room.players.push({
+      id: user.id,
+      name: user.first_name,
+    });
 
     return room;
   }
 
   getRoom(code) {
     return this.rooms.get(code);
+  }
+
+  removeUserFromRooms(userId) {
+    for (const [code, room] of this.rooms.entries()) {
+      room.players = room.players.filter(p => p.id !== userId);
+
+      if (room.players.length === 0) {
+        this.rooms.delete(code);
+      }
+    }
+  }
+
+  generateCode() {
+    return Math.random().toString(36).substring(2, 7).toUpperCase();
   }
 }
 
