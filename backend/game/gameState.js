@@ -1,221 +1,98 @@
-const Deck = require('./deck');
-const HandEvaluator = require('./handEvaluator');
-const {
-  SMALL_BLIND,
-  BIG_BLIND,
-  NEXT_HAND_DELAY
-} = require('./config');
+// backend/game/gameState.js
+
+/* ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---------- */
+
+function createDeck() {
+  const suits = ['♠', '♥', '♦', '♣'];
+  const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+
+  const deck = [];
+
+  for (const suit of suits) {
+    for (const rank of ranks) {
+      deck.push({ rank, suit });
+    }
+  }
+
+  return deck;
+}
+
+function shuffle(deck) {
+  for (let i = deck.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [deck[i], deck[j]] = [deck[j], deck[i]];
+  }
+  return deck;
+}
+
+/* ---------- GAME STATE ---------- */
 
 class GameState {
   constructor(players) {
-    this.players = players;
+    this.players = players.map(p => ({
+      id: p.id,
+      name: p.name,
+      chips: p.chips ?? 1000,
+      hand: [],
+      folded: false
+    }));
 
-    this.gameStatus = 'waiting';
-    this.lastHandResult = null;
+    this.deck = [];
+    this.communityCards = [];
+    this.stage = 'preflop'; // preflop | flop | turn | river | showdown
+    this.pot = 0;
+  }
 
-    this.currentPlayerIndex = 0;
+  /* ---------- ЗАПУСК ИГРЫ ---------- */
+
+  startGame() {
+    this.deck = shuffle(createDeck());
+    this.communityCards = [];
     this.stage = 'preflop';
-
-    this.nextHandTimer = null;
-
-    // 🔔 несколько подписчиков
-    this.turnListeners = [];
-
-    this.resetHand();
-  }
-
-  /* ---------- EVENTS ---------- */
-
-  onTurn(listener) {
-    this.turnListeners.push(listener);
-  }
-
-  emitTurnChange() {
-    this.turnListeners.forEach(fn =>
-      fn(this.currentPlayerIndex)
-    );
-  }
-
-  /* ---------- RESET ---------- */
-
-  resetHand() {
-    this.deck = new Deck();
-    this.board = [];
     this.pot = 0;
 
-    this.stage = 'preflop';
-    this.currentBet = 0;
-    this.currentPlayerIndex = 0;
+    // очистка рук
+    this.players.forEach(player => {
+      player.hand = [];
+      player.folded = false;
+    });
 
-    this.players.forEach(p => p.resetForNewRound());
+    // раздача по 2 карты
+    this.players.forEach(player => {
+      player.hand.push(this.deck.pop());
+      player.hand.push(this.deck.pop());
+    });
+
+    console.log('🃏 Cards dealt');
   }
 
-  /* ---------- START ---------- */
+  /* ---------- ПУБЛИЧНОЕ СОСТОЯНИЕ ---------- */
 
-  startHand() {
-    if (this.gameStatus === 'playing') return;
-
-    this.resetHand();
-    this.gameStatus = 'playing';
-
-    this.dealHoleCards();
-    this.postBlinds();
-
-    this.emitTurnChange();
-  }
-
-  /* ---------- DEAL ---------- */
-
-  dealHoleCards() {
-    for (let i = 0; i < 2; i++) {
-      for (const player of this.players) {
-        player.receiveCard(this.deck.deal());
-      }
-    }
-  }
-
-  /* ---------- BLINDS ---------- */
-
-  postBlinds() {
-    const sb = this.players[0];
-    const bb = this.players[1];
-
-    this.pot += sb.bet(SMALL_BLIND);
-    this.pot += bb.bet(BIG_BLIND);
-
-    this.currentBet = BIG_BLIND;
-    this.currentPlayerIndex = 0;
-  }
-
-  /* ---------- ACTION ---------- */
-
-  playerAction(action, amount = 0) {
-    if (this.gameStatus !== 'playing') return;
-
-    const player = this.players[this.currentPlayerIndex];
-    if (player.status !== 'active') {
-      this.nextPlayer();
-      return;
-    }
-
-    switch (action) {
-      case 'fold':
-        player.fold();
-        break;
-
-      case 'check':
-        if (player.currentBet !== this.currentBet)
-          throw new Error('Нельзя чекать');
-        break;
-
-      case 'call':
-        this.pot += player.bet(
-          this.currentBet - player.currentBet
-        );
-        break;
-
-      case 'bet':
-        if (this.currentBet !== 0)
-          throw new Error('Нельзя бетить');
-        this.currentBet = amount;
-        this.pot += player.bet(amount);
-        break;
-    }
-
-    if (this.getActivePlayers().length === 1) {
-      this.finishHand();
-      return;
-    }
-
-    this.isBettingRoundOver()
-      ? this.nextStage()
-      : this.nextPlayer();
-  }
-
-  /* ---------- FLOW ---------- */
-
-  nextPlayer() {
-    do {
-      this.currentPlayerIndex =
-        (this.currentPlayerIndex + 1) %
-        this.players.length;
-    } while (
-      this.players[this.currentPlayerIndex].status !== 'active'
-    );
-
-    this.emitTurnChange();
-  }
-
-  nextStage() {
-    this.players.forEach(p => (p.currentBet = 0));
-    this.currentBet = 0;
-
-    switch (this.stage) {
-      case 'preflop':
-        this.board.push(
-          this.deck.deal(),
-          this.deck.deal(),
-          this.deck.deal()
-        );
-        this.stage = 'flop';
-        break;
-      case 'flop':
-        this.board.push(this.deck.deal());
-        this.stage = 'turn';
-        break;
-      case 'turn':
-        this.board.push(this.deck.deal());
-        this.stage = 'river';
-        break;
-      case 'river':
-        this.finishHand();
-        return;
-    }
-
-    this.emitTurnChange();
-  }
-
-  getActivePlayers() {
-    return this.players.filter(p => p.status === 'active');
-  }
-
-  isBettingRoundOver() {
-    return this.players.every(
-      p => p.status !== 'active' || p.currentBet === this.currentBet
-    );
-  }
-
-  /* ---------- FINISH ---------- */
-
-  determineWinner() {
-    return this.players
-      .filter(p => p.status !== 'folded')
-      .map(p => ({
-        player: p,
-        hand: HandEvaluator.evaluate([
-          ...p.hand,
-          ...this.board
-        ])
+  getPublicState() {
+    return {
+      stage: this.stage,
+      pot: this.pot,
+      communityCards: this.communityCards,
+      players: this.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        chips: p.chips,
+        folded: p.folded,
+        cardsCount: p.hand.length
       }))
-      .sort((a, b) => b.hand.rank - a.hand.rank)[0];
+    };
   }
 
-  finishHand() {
-    const winner =
-      this.getActivePlayers().length === 1
-        ? this.getActivePlayers()[0]
-        : this.determineWinner().player;
+  /* ---------- ПРИВАТНОЕ СОСТОЯНИЕ ИГРОКА ---------- */
 
-    winner.chips += this.pot;
+  getPlayerPrivateState(playerId) {
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return null;
 
-    console.log(
-      `🏆 Победитель: ${winner.name}, банк ${this.pot}`
-    );
-
-    this.gameStatus = 'finished';
-
-    setTimeout(() => this.startHand(), NEXT_HAND_DELAY);
+    return {
+      hand: player.hand
+    };
   }
 }
 
-module.exports = GameState;
+module.exports = { GameState };

@@ -2,141 +2,196 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Poker Mini App</title>
+  <title>Poker Holdem</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-  <!-- Telegram WebApp SDK -->
+  <!-- Telegram WebApp -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-  <!-- Socket.IO -->
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <!-- Socket.io -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
   <style>
     body {
+      font-family: Arial, sans-serif;
+      background: #0b3d2e;
+      color: #fff;
       margin: 0;
       padding: 20px;
-      background: #0b3d2e;
-      color: #ffffff;
-      font-family: Arial, sans-serif;
     }
 
-    h1 {
+    h2 {
       margin-top: 0;
     }
 
     button {
       padding: 10px 16px;
-      margin: 4px 0;
-      border: none;
-      border-radius: 6px;
-      background: #1e6f5c;
-      color: white;
+      margin: 5px 0;
       font-size: 16px;
       cursor: pointer;
-    }
-
-    button:hover {
-      background: #2e8b77;
     }
 
     input {
       padding: 10px;
       font-size: 16px;
-      border-radius: 6px;
-      border: none;
-      width: 160px;
+      width: 100%;
+      margin-bottom: 10px;
     }
 
     .card {
-      background: #124e3a;
-      padding: 16px;
-      border-radius: 10px;
-      margin-top: 16px;
-    }
-
-    pre {
-      white-space: pre-wrap;
+      display: inline-block;
+      padding: 10px;
+      margin: 5px;
+      background: #fff;
+      color: #000;
+      border-radius: 6px;
+      font-weight: bold;
     }
   </style>
 </head>
 <body>
 
-  <h1>🃏 Poker Holdem</h1>
+<div id="app"></div>
 
-  <div class="card" id="user">
-    Загрузка пользователя...
-  </div>
+<script>
+/* ---------------- TELEGRAM ---------------- */
 
-  <div class="card">
-    <button onclick="createRoom()">➕ Создать комнату</button>
-    <br><br>
+const tg = window.Telegram.WebApp;
+tg.expand();
 
-    <input id="code" placeholder="Код комнаты" />
-    <br><br>
-    <button onclick="joinRoom()">🔑 Войти в комнату</button>
-  </div>
+const tgUser = tg.initDataUnsafe.user || {
+  id: Math.floor(Math.random() * 1000000),
+  first_name: 'Guest'
+};
 
-  <div class="card">
-    <h3>🏠 Текущая комната</h3>
-    <pre id="room">—</pre>
-  </div>
+/* ---------------- SOCKET ---------------- */
 
-  <script>
-    /* ---------- Telegram ---------- */
-    const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
+const socket = io();
 
-    const user = tg.initDataUnsafe?.user;
+/* ---------------- STATE ---------------- */
 
-    if (user) {
-      document.getElementById('user').innerHTML = `
-        <b>Игрок:</b> ${user.first_name}<br>
-        <b>ID:</b> ${user.id}
-      `;
-    } else {
-      document.getElementById('user').innerText =
-        '❌ Откройте приложение через Telegram';
+let currentRoom = null;
+let myCards = [];
+
+/* ---------------- UI RENDER ---------------- */
+
+function renderHome() {
+  document.getElementById('app').innerHTML = `
+    <h2>🃏 Poker Holdem</h2>
+
+    <button onclick="createRoom()">Создать комнату</button>
+
+    <hr>
+
+    <input id="roomCodeInput" placeholder="Код комнаты" />
+    <button onclick="joinRoom()">Войти в комнату</button>
+  `;
+}
+
+function renderRoom(room) {
+  const isHost = room.hostId === tgUser.id;
+
+  document.getElementById('app').innerHTML = `
+    <h2>Комната ${room.code}</h2>
+
+    <h3>Игроки:</h3>
+    <ul>
+      ${room.players.map(p => `<li>${p.name}</li>`).join('')}
+    </ul>
+
+    ${isHost ? `<button onclick="startGame()">Начать игру</button>` : ''}
+
+    <p>Ожидание старта...</p>
+  `;
+}
+
+function renderGame(publicState) {
+  document.getElementById('app').innerHTML = `
+    <h2>🎮 Игра началась</h2>
+
+    <h3>Игроки:</h3>
+    <ul>
+      ${publicState.players.map(p =>
+        `<li>${p.name} — ${p.chips} фишек</li>`
+      ).join('')}
+    </ul>
+
+    <h3>Ваши карты:</h3>
+    <div>
+      ${myCards.map(c =>
+        `<span class="card">${c.rank}${c.suit}</span>`
+      ).join('')}
+    </div>
+
+    <p>Улица: ${publicState.stage}</p>
+  `;
+}
+
+/* ---------------- ACTIONS ---------------- */
+
+function createRoom() {
+  socket.emit('create_room', {
+    user: {
+      id: tgUser.id,
+      name: tgUser.first_name
     }
+  });
+}
 
-    /* ---------- Socket.IO ---------- */
-    const socket = io();
+function joinRoom() {
+  const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
+  if (!code) return alert('Введите код комнаты');
 
-    socket.emit('auth', {
-      initData: tg.initData
-    });
-
-    /* ---------- UI Actions ---------- */
-    function createRoom() {
-      socket.emit('create_room');
+  socket.emit('join_room', {
+    code,
+    user: {
+      id: tgUser.id,
+      name: tgUser.first_name
     }
+  });
+}
 
-    function joinRoom() {
-      const code = document
-        .getElementById('code')
-        .value
-        .trim()
-        .toUpperCase();
+function startGame() {
+  socket.emit('start_game', { code: currentRoom.code });
+}
 
-      if (!code) {
-        alert('Введите код комнаты');
-        return;
-      }
+/* ---------------- SOCKET EVENTS ---------------- */
 
-      socket.emit('join_room', code);
-    }
+socket.on('room_joined', room => {
+  currentRoom = room;
+  renderRoom(room);
+});
 
-    /* ---------- Socket Events ---------- */
-    socket.on('room_update', (room) => {
-      document.getElementById('room').innerText =
-        'Код комнаты: ' + room.code + '\n\n' +
-        'Игроки:\n' +
-        room.players.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
-    });
+socket.on('room_update', room => {
+  currentRoom = room;
+  renderRoom(room);
+});
 
-    socket.on('error_message', (msg) => {
-      alert(msg);
-    });
-  </script>
+socket.on('game_started', ({ publicState }) => {
+  socket.emit('get_my_cards', {
+    code: currentRoom.code,
+    playerId: tgUser.id
+  });
+
+  renderGame(publicState);
+});
+
+socket.on('my_cards', cards => {
+  myCards = cards;
+  socket.emit('get_my_cards', {
+    code: currentRoom.code,
+    playerId: tgUser.id
+  });
+});
+
+socket.on('error_msg', msg => {
+  alert(msg);
+});
+
+/* ---------------- INIT ---------------- */
+
+renderHome();
+</script>
 
 </body>
 </html>

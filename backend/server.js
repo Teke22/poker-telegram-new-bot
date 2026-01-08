@@ -2,133 +2,150 @@ require('dotenv').config();
 
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
 const cors = require('cors');
-const crypto = require('crypto');
+const { Server } = require('socket.io');
 
-const RoomManager = require('./rooms/roomManager');
+const { GameState } = require('./game/gameState');
 
 const app = express();
 const server = http.createServer(app);
 
-/* ---------------- Socket.IO ---------------- */
-
-const io = new Server(server, {
-  cors: {
-    origin: '*',
-  },
-});
-
-const roomManager = new RoomManager();
-
-/* ---------------- Middleware ---------------- */
+/* ---------------- MIDDLEWARE ---------------- */
 
 app.use(cors());
 app.use(express.json());
 
-/* ---------------- Static Mini App ---------------- */
+/* ---------------- SOCKET.IO ---------------- */
 
-app.use(express.static('../frontend'));
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
+});
 
-/* ---------------- Health check ---------------- */
+/* ---------------- ROOMS STORAGE ---------------- */
+
+// roomCode -> room object
+const rooms = {};
+
+function generateRoomCode() {
+  return Math.random().toString(36).substring(2, 7).toUpperCase();
+}
+
+/* ---------------- SOCKET EVENTS ---------------- */
+
+io.on('connection', socket => {
+  console.log('🔌 User connected:', socket.id);
+
+  /* ----- CREATE ROOM ----- */
+  socket.on('create_room', ({ user }) => {
+    const code = generateRoomCode();
+
+    rooms[code] = {
+      code,
+      hostId: user.id,
+      players: [
+        {
+          id: user.id,
+          name: user.name,
+          chips: 1000
+        }
+      ],
+      game: null
+    };
+
+    socket.join(code);
+
+    socket.emit('room_joined', rooms[code]);
+    io.to(code).emit('room_update', rooms[code]);
+
+    console.log(`🏠 Room created: ${code}`);
+  });
+
+  /* ----- JOIN ROOM ----- */
+  socket.on('join_room', ({ code, user }) => {
+    const room = rooms[code];
+
+    if (!room) {
+      socket.emit('error_msg', 'Комната не найдена');
+      return;
+    }
+
+    // защита от дублей
+    if (room.players.find(p => p.id === user.id)) return;
+
+    room.players.push({
+      id: user.id,
+      name: user.name,
+      chips: 1000
+    });
+
+    socket.join(code);
+
+    io.to(code).emit('room_update', room);
+
+    console.log(`➕ ${user.name} joined room ${code}`);
+  });
+
+  /* ----- START GAME ----- */
+  socket.on('start_game', ({ code }) => {
+    const room = rooms[code];
+    if (!room) return;
+
+    if (room.players.length < 2) {
+      socket.emit('error_msg', 'Нужно минимум 2 игрока');
+      return;
+    }
+
+    room.game = new GameState(
+      room.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        chips: p.chips
+      }))
+    );
+
+    room.game.startGame();
+
+    io.to(code).emit('game_started', {
+      publicState: room.game.getPublicState()
+    });
+
+    console.log(`🎮 Game started in room ${code}`);
+  });
+
+  /* ----- GET PRIVATE CARDS ----- */
+  socket.on('get_my_cards', ({ code, playerId }) => {
+    const room = rooms[code];
+    if (!room || !room.game) return;
+
+    const privateState = room.game.getPlayerPrivateState(playerId);
+    if (!privateState) return;
+
+    socket.emit('my_cards', privateState.hand);
+  });
+
+  /* ----- DISCONNECT ----- */
+  socket.on('disconnect', () => {
+    console.log('❌ User disconnected:', socket.id);
+  });
+});
+
+/* ---------------- BASIC ROUTES ---------------- */
+
+app.get('/', (req, res) => {
+  res.send('Poker Telegram backend is running');
+});
 
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
-/* ---------------- Telegram auth verify ---------------- */
-
-function verifyTelegramData(initData) {
-  const secret = crypto
-    .createHash('sha256')
-    .update(process.env.BOT_TOKEN)
-    .digest();
-
-  const params = new URLSearchParams(initData);
-  const hash = params.get('hash');
-  params.delete('hash');
-
-  const dataCheckString = [...params.entries()]
-    .sort()
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n');
-
-  const hmac = crypto
-    .createHmac('sha256', secret)
-    .update(dataCheckString)
-    .digest('hex');
-
-  return hmac === hash;
-}
-
-/* ---------------- Socket events ---------------- */
-
-io.on('connection', (socket) => {
-  console.log('🔌 Socket connected:', socket.id);
-
-  /* ---------- AUTH ---------- */
-  socket.on('auth', ({ initData }) => {
-    try {
-      if (!verifyTelegramData(initData)) {
-        console.log('❌ Invalid Telegram auth');
-        socket.disconnect();
-        return;
-      }
-
-      const params = new URLSearchParams(initData);
-      const user = JSON.parse(params.get('user'));
-
-      socket.user = user;
-
-      console.log(`🟢 ${user.first_name} (${user.id}) authenticated`);
-    } catch (err) {
-      console.error('Auth error:', err);
-      socket.disconnect();
-    }
-  });
-
-  /* ---------- CREATE ROOM ---------- */
-  socket.on('create_room', () => {
-    if (!socket.user) return;
-
-    const room = roomManager.createRoom(socket.user);
-
-    socket.join(room.code);
-    socket.emit('room_update', room);
-
-    console.log(`🏠 Room created: ${room.code}`);
-  });
-
-  /* ---------- JOIN ROOM ---------- */
-  socket.on('join_room', (code) => {
-    try {
-      if (!socket.user) return;
-
-      const room = roomManager.joinRoom(code, socket.user);
-
-      socket.join(room.code);
-      io.to(room.code).emit('room_update', room);
-
-      console.log(`➕ ${socket.user.first_name} joined room ${code}`);
-    } catch (err) {
-      socket.emit('error_message', err.message);
-    }
-  });
-
-  /* ---------- DISCONNECT ---------- */
-  socket.on('disconnect', () => {
-    if (socket.user) {
-      roomManager.removeUserFromRooms(socket.user.id);
-      console.log(`🔴 ${socket.user.first_name} disconnected`);
-    } else {
-      console.log('🔴 Socket disconnected:', socket.id);
-    }
-  });
-});
-
-/* ---------------- Start server ---------------- */
+/* ---------------- START SERVER ---------------- */
 
 const PORT = process.env.PORT || 3000;
+
 server.listen(PORT, () => {
   console.log(`🚀 Server started on port ${PORT}`);
 });
