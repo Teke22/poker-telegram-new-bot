@@ -104,6 +104,15 @@ io.on('connection', socket => {
     } catch (e) {
       socket.emit('error_msg', e.message);
     }
+if (room.game.finished) {
+  const winner = room.game.getWinner();
+
+  io.to(code).emit('hand_finished', {
+    winner: winner ? { id: winner.id, name: winner.name } : null,
+    reason: 'fold'
+  });
+}
+
   });
 
   socket.on('get_my_cards', ({ code, playerId }) => {

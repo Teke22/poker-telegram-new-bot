@@ -88,8 +88,13 @@ class GameState {
 
   finishHand() {
     this.finished = true;
-    console.log('🏁 Hand finished');
+    const winner = this.getWinner();
+  console.log(`🏆 Winner: ${winner?.name}`);
   }
+getWinner() {
+  return this.players.find(p => !p.folded) || null;
+}
+
 
   getPublicState() {
     return {
