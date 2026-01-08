@@ -26,6 +26,10 @@ button {
 button:hover {
   background:#248464;
 }
+button:disabled {
+  background:#555;
+  cursor:not-allowed;
+}
 input {
   padding:8px;
   margin:5px;
@@ -162,7 +166,12 @@ function renderBoard(state) {
 
 function renderGame(state) {
   lastState = state;
-  document.getElementById('status').innerText = statusMessage || `🎲 Стадия: ${state.stage}`;
+  
+  if (state.finished) {
+    document.getElementById('status').innerText = statusMessage || '🎉 Раздача завершена';
+  } else {
+    document.getElementById('status').innerText = statusMessage || `🎲 Стадия: ${state.stage} | Банк: ${state.pot}`;
+  }
 
   gameStarted = true;
   const current = state.players.find(p => p.id === state.currentPlayerId);
@@ -183,7 +192,7 @@ function renderGame(state) {
     <div class="box">
       <p>📊 Стадия: <b>${state.stage}</b></p>
       <p>💰 Банк: <b>${state.pot}</b></p>
-      <p>💵 Текущая ставка: <b>${state.currentBet}</b></p>
+      ${state.currentBet > 0 ? `<p>💵 Текущая ставка: <b>${state.currentBet}</b></p>` : ''}
       <p>🎯 Ход: <b>${current?.name || 'ожидание...'}</b></p>
     </div>
 
@@ -193,13 +202,14 @@ function renderGame(state) {
       <h3>👥 Игроки</h3>
       <ul>
         ${state.players.map(p => `
-          <li>
+          <li style="padding: 8px; margin: 2px 0; ${p.id === me.id ? 'background: rgba(26, 107, 82, 0.3);' : ''}">
             ${p.id === state.currentPlayerId ? '👉 ' : ''}
+            ${p.id === me.id ? '👤 ' : ''}
             ${p.name} 
             ${p.folded ? '❌ (fold)' : ''}
             ${p.allIn ? '⚠️ (all-in)' : ''}
             — 💰 ${p.chips}
-            ${p.bet > 0 ? ` (ставка: ${p.bet})` : ''}
+            ${p.bet > 0 ? `<span style="color: #d4af37;"> (ставка: ${p.bet})</span>` : ''}
           </li>
         `).join('')}
       </ul>
@@ -214,16 +224,20 @@ function renderGame(state) {
 
     <br>
 
-    ${state.currentPlayerId === me.id && !state.finished
+    ${!state.finished && state.currentPlayerId === me.id
       ? renderActions(state, meState)
       : state.finished 
-        ? '<p>🎉 Игра завершена. Новая раздача начнется через несколько секунд...</p>'
+        ? '<div class="box"><p>🎉 Раздача завершена. Новая начнется через несколько секунд...</p></div>'
         : '<div class="box"><p>⏳ Ожидание хода другого игрока...</p></div>'}
 
-    ${state.finished ? '' : `
-      <br>
-      <button onclick="fold()" style="background:#c62828;">❌ Фолд</button>
-    `}
+    <br>
+    <button onclick="leaveGame()" style="background:#c62828; padding:10px 20px;">
+      🚪 Встать из-за стола
+    </button>
+    <br><br>
+    <button onclick="showRoom()" style="background:#555; padding:8px 16px;">
+      ↩️ Назад в комнату
+    </button>
   `;
 }
 
@@ -231,7 +245,11 @@ function renderActions(state, meState) {
   if (meState.folded) return '<div class="box"><p>❌ Вы сбросили карты</p></div>';
   if (meState.allIn) return '<div class="box"><p>⚠️ Вы all-in</p></div>';
 
+  const toCall = state.currentBet - meState.bet;
+  const canCheck = toCall <= 0;
+  
   if (state.currentBet === 0) {
+    // Нет текущих ставок
     return `
       <div class="box">
         <h3>🎯 Ваш ход</h3>
@@ -239,20 +257,23 @@ function renderActions(state, meState) {
         <input id="betAmount" type="number" min="20" max="${meState.chips}" placeholder="Сумма" value="20">
         <br><br>
         <button onclick="bet()" style="background:#d4af37;">💰 Поставить</button>
-        <button onclick="check()">✓ Чек</button>
+        <button onclick="check()" ${!canCheck ? 'disabled' : ''}>✓ Чек</button>
+        <button onclick="fold()" style="background:#c62828;">❌ Фолд</button>
       </div>
     `;
   }
 
-  const toCall = state.currentBet - meState.bet;
-  const minRaise = Math.max(state.currentBet * 2, 40);
-  const canRaise = meState.chips >= minRaise;
-
+  // Есть ставка для колла
+  const minRaise = state.currentBet * 2;
+  const canRaise = meState.chips >= minRaise - meState.bet;
+  
   return `
     <div class="box">
       <h3>🎯 Ваш ход</h3>
+      <p>Текущая ставка: <b>${state.currentBet}</b></p>
+      <p>Ваша ставка: <b>${meState.bet}</b></p>
       <p>Нужно доставить: <b>${toCall}</b></p>
-      <p>Минимальный рейз: <b>${minRaise}</b></p>
+      ${canRaise ? `<p>Минимальный рейз: <b>${minRaise}</b></p>` : ''}
       
       ${canRaise ? `
         <input id="raiseAmount" type="number" min="${minRaise}" max="${meState.chips + meState.bet}" 
@@ -260,14 +281,19 @@ function renderActions(state, meState) {
         <br><br>
       ` : ''}
       
-      ${toCall <= meState.chips ? `
-        <button onclick="call()" style="background:#2e7d32;">📞 Колл (${toCall})</button>
-      ` : `
-        <button onclick="allIn()" style="background:#f57c00;">⚠️ All-in (${meState.chips})</button>
-      `}
+      <button onclick="call()" style="background:#2e7d32;">
+        ${toCall > 0 ? `📞 Колл (${toCall})` : '✓ Чек'}
+      </button>
       
       ${canRaise ? `
         <button onclick="raise()" style="background:#d4af37;">📈 Рейз</button>
+      ` : ''}
+      
+      <button onclick="fold()" style="background:#c62828;">❌ Фолд</button>
+      
+      ${toCall >= meState.chips ? `
+        <br><br>
+        <button onclick="allIn()" style="background:#f57c00;">⚠️ All-in (${meState.chips})</button>
       ` : ''}
     </div>
   `;
@@ -287,11 +313,27 @@ function joinRoom() {
     return;
   }
   socket.emit('join_room', { code, user: me });
-  statusMessage = 'Присоединение к комнате...';
+  statusMessage = 'Присоединение к комнаты...';
 }
 
 function leaveRoom() {
   if (confirm('Выйти из комнаты?')) {
+    socket.emit('leave_room', { code: room.code, playerId: me.id });
+    room = null;
+    gameStarted = false;
+    myCards = [];
+    showLobby();
+  }
+}
+
+function leaveGame() {
+  if (confirm('Вы уверены, что хотите встать из-за стола? Ваши карты будут сброшены.')) {
+    socket.emit('player_leave', {
+      code: room.code,
+      playerId: me.id
+    });
+    
+    // Возвращаемся в лобби
     room = null;
     gameStarted = false;
     myCards = [];
@@ -322,10 +364,23 @@ function check() {
 
 function bet() {
   const amount = Number(document.getElementById('betAmount').value);
-  if (amount < 20 || amount > lastState.players.find(p => p.id === me.id).chips) {
-    alert('Некорректная сумма ставки');
+  const meState = lastState.players.find(p => p.id === me.id);
+  
+  if (!meState) {
+    alert('Ошибка: игрок не найден');
     return;
   }
+  
+  if (amount < 20) {
+    alert(`Минимальная ставка: 20`);
+    return;
+  }
+  
+  if (amount > meState.chips) {
+    alert('Недостаточно фишек');
+    return;
+  }
+  
   socket.emit('player_action', {
     code: room.code,
     playerId: me.id,
@@ -334,14 +389,6 @@ function bet() {
 }
 
 function call() {
-  const meState = lastState.players.find(p => p.id === me.id);
-  const toCall = lastState.currentBet - meState.bet;
-  
-  if (toCall >= meState.chips) {
-    allIn();
-    return;
-  }
-  
   socket.emit('player_action', {
     code: room.code,
     playerId: me.id,
@@ -353,12 +400,18 @@ function raise() {
   const amount = Number(document.getElementById('raiseAmount').value);
   const meState = lastState.players.find(p => p.id === me.id);
   
+  if (!meState) {
+    alert('Ошибка: игрок не найден');
+    return;
+  }
+  
   if (amount < lastState.currentBet * 2) {
     alert(`Минимальный рейз: ${lastState.currentBet * 2}`);
     return;
   }
   
-  if (amount > meState.chips + meState.bet) {
+  const toCall = amount - meState.bet;
+  if (toCall > meState.chips) {
     alert('Недостаточно фишек');
     return;
   }
@@ -372,12 +425,12 @@ function raise() {
 
 function allIn() {
   const meState = lastState.players.find(p => p.id === me.id);
-  const allInAmount = meState.chips + meState.bet;
+  if (!meState) return;
   
   socket.emit('player_action', {
     code: room.code,
     playerId: me.id,
-    action: { type: 'raise', amount: allInAmount }
+    action: { type: 'raise', amount: meState.chips + meState.bet }
   });
 }
 
@@ -433,6 +486,10 @@ socket.on('hand_finished', ({ winner, reason }) => {
     statusMessage = `🏆 Победитель: ${winner.name}!`;
   } else if (reason === 'fold') {
     statusMessage = '🎉 Игра завершена (все кроме одного сбросили карты)';
+  } else if (reason === 'showdown') {
+    statusMessage = '🎉 Шоудаун! Карты вскрыты.';
+  } else if (reason === 'player_left') {
+    statusMessage = '👋 Игрок покинул стол';
   } else {
     statusMessage = '🎉 Раздача завершена';
   }

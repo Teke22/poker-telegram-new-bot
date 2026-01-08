@@ -76,25 +76,62 @@ io.on('connection', socket => {
   socket.on('disconnect', () => {
     console.log('🔌 User disconnected:', socket.id);
     
-    // Удаляем пользователя из userSockets
+    // Находим пользователя по socket.id
+    let disconnectedUserId = null;
     for (const [userId, socketId] of Object.entries(userSockets)) {
       if (socketId === socket.id) {
+        disconnectedUserId = userId;
         delete userSockets[userId];
         break;
       }
     }
     
-    // Проверяем все комнаты на наличие отключенных пользователей
-    for (const [code, room] of Object.entries(rooms)) {
-      const disconnectedPlayer = room.players.find(p => 
-        userSockets[p.id] === undefined && p.id !== 'debug'
-      );
-      
-      if (disconnectedPlayer) {
-        console.log(`⚠️ Player ${disconnectedPlayer.name} disconnected from ${code}`);
-        
-        // Уведомляем остальных игроков
-        io.to(code).emit('room_update', room);
+    if (disconnectedUserId) {
+      // Обрабатываем отключение во всех комнатах
+      for (const [code, room] of Object.entries(rooms)) {
+        const player = room.players.find(p => p.id === disconnectedUserId);
+        if (player) {
+          console.log(`⚠️ Player ${player.name} disconnected from ${code}`);
+          
+          // Если игра идет, обрабатываем как фолд
+          if (room.game && room.game.stage !== 'waiting') {
+            try {
+              room.game.playerLeave(disconnectedUserId);
+              
+              // Отправляем обновленное состояние
+              io.to(code).emit('game_update', room.game.getPublicState());
+              
+              // Проверяем завершение игры
+              if (room.game.finished) {
+                const winner = room.game.getWinner();
+                
+                setTimeout(() => {
+                  io.to(code).emit('hand_finished', {
+                    winner: winner ? { id: winner.id, name: winner.name } : null,
+                    reason: 'disconnect'
+                  });
+                }, 1000);
+              }
+            } catch (error) {
+              console.error('Error handling disconnect in game:', error);
+            }
+          }
+          
+          // Удаляем игрока из комнаты через 30 секунд если не переподключился
+          setTimeout(() => {
+            if (rooms[code] && !userSockets[disconnectedUserId]) {
+              rooms[code].players = rooms[code].players.filter(p => p.id !== disconnectedUserId);
+              
+              if (rooms[code].players.length === 0) {
+                delete rooms[code];
+                console.log(`🗑️ Room ${code} deleted (empty after disconnect)`);
+              } else {
+                io.to(code).emit('room_update', rooms[code]);
+                console.log(`👋 Disconnected player ${player.name} removed from ${code}`);
+              }
+            }
+          }, 30000); // 30 секунд на переподключение
+        }
       }
     }
   });
@@ -226,9 +263,15 @@ io.on('connection', socket => {
       room.players.forEach(player => {
         const privateState = room.game.getPlayerPrivateState(player.id);
         if (privateState) {
-          io.to(code).emit('my_cards', privateState.hand);
+          socket.to(player.id).emit('my_cards', privateState.hand);
         }
       });
+      
+      // Отправляем карты текущему игроку напрямую
+      const currentPlayerPrivateState = room.game.getPlayerPrivateState(room.game.currentPlayer?.id);
+      if (currentPlayerPrivateState) {
+        socket.emit('my_cards', currentPlayerPrivateState.hand);
+      }
       
       io.to(code).emit('game_started', {
         publicState: room.game.getPublicState()
@@ -287,9 +330,15 @@ io.on('connection', socket => {
                 room.players.forEach(player => {
                   const privateState = room.game.getPlayerPrivateState(player.id);
                   if (privateState) {
-                    io.to(code).emit('my_cards', privateState.hand);
+                    socket.to(player.id).emit('my_cards', privateState.hand);
                   }
                 });
+                
+                // Отправляем карты текущему игроку
+                const currentPlayerPrivateState = room.game.getPlayerPrivateState(room.game.currentPlayer?.id);
+                if (currentPlayerPrivateState) {
+                  socket.emit('my_cards', currentPlayerPrivateState.hand);
+                }
                 
                 io.to(code).emit('game_started', {
                   publicState: room.game.getPublicState()
@@ -355,10 +404,10 @@ io.on('connection', socket => {
       
       // Если игра идет, фолдим игрока
       if (room.game) {
-        const playerInGame = room.game.players.find(p => p.id === playerId);
-        if (playerInGame) {
-          playerInGame.folded = true;
-          room.game.checkHandCompletion();
+        try {
+          room.game.playerLeave(playerId);
+        } catch (error) {
+          console.error('Error handling leave in game:', error);
         }
       }
       
@@ -366,6 +415,89 @@ io.on('connection', socket => {
       cleanupRoom(code);
       
       console.log(`👋 Player ${playerId} left ${code}`);
+    }
+  });
+
+  // Новый обработчик для выхода из игры
+  socket.on('player_leave', ({ code, playerId }) => {
+    try {
+      const room = rooms[code];
+      if (!room) {
+        socket.emit('error_msg', 'Комната не найдена');
+        return;
+      }
+      
+      // Удаляем игрока из комнаты
+      room.players = room.players.filter(p => p.id !== playerId);
+      
+      // Если игра идет, обрабатываем выход в GameState
+      if (room.game && room.game.stage !== 'waiting') {
+        try {
+          room.game.playerLeave(playerId);
+          
+          // Отправляем обновленное состояние
+          io.to(code).emit('game_update', room.game.getPublicState());
+          
+          // Если после выхода остался один игрок или меньше
+          const activePlayers = room.players.filter(p => 
+            room.game.players.find(gp => gp.id === p.id && !gp.folded)
+          );
+          
+          if (activePlayers.length <= 1 && room.game.stage !== 'waiting') {
+            // Завершаем раздачу
+            setTimeout(() => {
+              if (room.game) {
+                const winner = room.game.getWinner();
+                
+                io.to(code).emit('hand_finished', {
+                  winner: winner ? { id: winner.id, name: winner.name } : null,
+                  reason: 'player_left'
+                });
+                
+                // Через 3 секунды начинаем новую раздачу если есть игроки
+                setTimeout(() => {
+                  if (room && room.game && room.players.length >= 2) {
+                    room.game.startGame();
+                    
+                    // Отправляем карты каждому игроку
+                    room.players.forEach(player => {
+                      const privateState = room.game.getPlayerPrivateState(player.id);
+                      if (privateState) {
+                        socket.to(player.id).emit('my_cards', privateState.hand);
+                      }
+                    });
+                    
+                    io.to(code).emit('game_started', {
+                      publicState: room.game.getPublicState()
+                    });
+                  } else if (room.players.length < 2) {
+                    // Недостаточно игроков, возвращаем в лобби
+                    room.game = null;
+                    io.to(code).emit('room_update', room);
+                  }
+                }, 3000);
+              }
+            }, 1000);
+          }
+        } catch (error) {
+          console.error('Error handling player leave in game:', error);
+        }
+      }
+      
+      // Уведомляем остальных игроков
+      io.to(code).emit('room_update', room);
+      
+      // Если комната пустая, удаляем ее
+      if (room.players.length === 0) {
+        delete rooms[code];
+        console.log(`🗑️ Room ${code} deleted (empty)`);
+      } else {
+        console.log(`👋 Player ${playerId} left ${code}. Players left: ${room.players.length}`);
+      }
+      
+    } catch (error) {
+      console.error('Error processing leave:', error);
+      socket.emit('error_msg', 'Ошибка при выходе из игры');
     }
   });
 });
