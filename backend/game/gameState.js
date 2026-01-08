@@ -34,7 +34,13 @@ class GameState {
     this.communityCards = [];
     this.stage = 'preflop';
     this.currentPlayerIndex = 0;
-    this.finished = false; // 🔹 ДОБАВИЛИ
+    this.finished = false;
+
+    // 🔹 3.7.0 — ставки
+    this.pot = 0;
+    this.currentBet = 0;
+    this.bets = {};
+    this.lastAggressorIndex = null;
   }
 
   startGame() {
@@ -44,9 +50,15 @@ class GameState {
     this.currentPlayerIndex = 0;
     this.finished = false;
 
+    this.pot = 0;
+    this.currentBet = 0;
+    this.bets = {};
+    this.lastAggressorIndex = null;
+
     this.players.forEach(p => {
       p.hand = [this.deck.pop(), this.deck.pop()];
       p.folded = false;
+      this.bets[p.id] = 0;
     });
   }
 
@@ -70,7 +82,7 @@ class GameState {
 
     if (player.id !== playerId) {
       console.log('⛔ Not your turn');
-      return; // 🔹 УБРАЛИ throw
+      return;
     }
 
     console.log(`👤 ${player.name} → ${action}`);
@@ -82,30 +94,83 @@ class GameState {
     }
 
     if (action === 'check') {
+      if (this.currentBet !== 0) {
+        console.log('⛔ Cannot check, bet exists');
+        return;
+      }
       this.nextPlayer();
+      return;
+    }
+
+    if (action.type === 'bet') {
+      if (this.currentBet !== 0) return;
+
+      const amount = action.amount;
+      if (amount <= 0 || amount > player.chips) return;
+
+      player.chips -= amount;
+      this.bets[player.id] += amount;
+      this.currentBet = amount;
+      this.pot += amount;
+      this.lastAggressorIndex = this.currentPlayerIndex;
+
+      this.nextPlayer();
+      return;
+    }
+
+    if (action.type === 'call') {
+      const toCall = this.currentBet - this.bets[player.id];
+      if (toCall <= 0 || toCall > player.chips) return;
+
+      player.chips -= toCall;
+      this.bets[player.id] += toCall;
+      this.pot += toCall;
+
+      this.nextPlayer();
+      return;
+    }
+
+    if (action.type === 'raise') {
+      const raiseTo = action.amount;
+      if (raiseTo <= this.currentBet) return;
+
+      const diff = raiseTo - this.bets[player.id];
+      if (diff > player.chips) return;
+
+      player.chips -= diff;
+      this.bets[player.id] += diff;
+      this.pot += diff;
+      this.currentBet = raiseTo;
+      this.lastAggressorIndex = this.currentPlayerIndex;
+
+      this.nextPlayer();
+      return;
     }
   }
 
   finishHand() {
     this.finished = true;
     const winner = this.getWinner();
-  console.log(`🏆 Winner: ${winner?.name}`);
+    console.log(`🏆 Winner: ${winner?.name}`);
   }
-getWinner() {
-  return this.players.find(p => !p.folded) || null;
-}
 
+  getWinner() {
+    return this.players.find(p => !p.folded) || null;
+  }
 
   getPublicState() {
     return {
       stage: this.stage,
       finished: this.finished,
+      pot: this.pot,
+      currentBet: this.currentBet,
       currentPlayerId: this.currentPlayer.id,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         folded: p.folded,
-        chips: p.chips
+        chips: p.chips,
+        bet: this.bets[p.id] || 0
       }))
     };
   }
