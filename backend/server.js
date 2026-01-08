@@ -11,34 +11,27 @@ const { GameState } = require('./game/gameState');
 const app = express();
 const server = http.createServer(app);
 
-/* ---------------- MIDDLEWARE ---------------- */
+/* ---------- middleware ---------- */
 
 app.use(cors());
 app.use(express.json());
 
-/* ---------------- FRONTEND ---------------- */
+/* ---------- frontend ---------- */
 
-// путь к папке frontend
 const frontendPath = path.join(__dirname, '..', 'frontend');
-
-// раздаём frontend как статические файлы
 app.use(express.static(frontendPath));
 
-// если открывают /
 app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-/* ---------------- SOCKET.IO ---------------- */
+/* ---------- socket.io ---------- */
 
 const io = new Server(server, {
-  cors: {
-    origin: '*',
-    methods: ['GET', 'POST']
-  }
+  cors: { origin: '*' }
 });
 
-/* ---------------- ROOMS ---------------- */
+/* ---------- rooms ---------- */
 
 const rooms = {};
 
@@ -47,7 +40,7 @@ function generateRoomCode() {
 }
 
 io.on('connection', socket => {
-  console.log('🔌 User connected:', socket.id);
+  console.log('🔌 connected:', socket.id);
 
   socket.on('create_room', ({ user }) => {
     const code = generateRoomCode();
@@ -92,14 +85,24 @@ io.on('connection', socket => {
     const room = rooms[code];
     if (!room || !room.game) return;
 
-    const privateState = room.game.getPlayerPrivateState(playerId);
-    if (privateState) {
-      socket.emit('my_cards', privateState.hand);
+    const state = room.game.getPlayerPrivateState(playerId);
+    if (state) socket.emit('my_cards', state.hand);
+  });
+
+  socket.on('player_action', ({ code, playerId, action }) => {
+    const room = rooms[code];
+    if (!room || !room.game) return;
+
+    try {
+      room.game.playerAction(playerId, action);
+      io.to(code).emit('game_update', room.game.getPublicState());
+    } catch (e) {
+      socket.emit('error_msg', e.message);
     }
   });
 });
 
-/* ---------------- START ---------------- */
+/* ---------- start ---------- */
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

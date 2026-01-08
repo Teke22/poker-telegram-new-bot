@@ -1,11 +1,8 @@
 // backend/game/gameState.js
 
-/* ---------- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---------- */
-
 function createDeck() {
   const suits = ['♠', '♥', '♦', '♣'];
-  const ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
-
+  const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
   const deck = [];
 
   for (const suit of suits) {
@@ -25,8 +22,6 @@ function shuffle(deck) {
   return deck;
 }
 
-/* ---------- GAME STATE ---------- */
-
 class GameState {
   constructor(players) {
     this.players = players.map(p => ({
@@ -39,59 +34,67 @@ class GameState {
 
     this.deck = [];
     this.communityCards = [];
-    this.stage = 'preflop'; // preflop | flop | turn | river | showdown
-    this.pot = 0;
+    this.stage = 'preflop';
+    this.currentPlayerIndex = 0;
   }
-
-  /* ---------- ЗАПУСК ИГРЫ ---------- */
 
   startGame() {
     this.deck = shuffle(createDeck());
     this.communityCards = [];
     this.stage = 'preflop';
-    this.pot = 0;
+    this.currentPlayerIndex = 0;
 
-    // очистка рук
-    this.players.forEach(player => {
-      player.hand = [];
-      player.folded = false;
+    this.players.forEach(p => {
+      p.hand = [this.deck.pop(), this.deck.pop()];
+      p.folded = false;
     });
-
-    // раздача по 2 карты
-    this.players.forEach(player => {
-      player.hand.push(this.deck.pop());
-      player.hand.push(this.deck.pop());
-    });
-
-    console.log('🃏 Cards dealt');
   }
 
-  /* ---------- ПУБЛИЧНОЕ СОСТОЯНИЕ ---------- */
+  get currentPlayer() {
+    return this.players[this.currentPlayerIndex];
+  }
+
+  nextPlayer() {
+    do {
+      this.currentPlayerIndex =
+        (this.currentPlayerIndex + 1) % this.players.length;
+    } while (this.currentPlayer.folded);
+  }
+
+  playerAction(playerId, action) {
+    const player = this.currentPlayer;
+
+    if (player.id !== playerId) {
+      throw new Error('Сейчас не ваш ход');
+    }
+
+    if (action === 'fold') {
+      player.folded = true;
+    }
+
+    if (action === 'check') {
+      // ничего не меняем
+    }
+
+    this.nextPlayer();
+  }
 
   getPublicState() {
     return {
       stage: this.stage,
-      pot: this.pot,
-      communityCards: this.communityCards,
+      currentPlayerId: this.currentPlayer.id,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
-        chips: p.chips,
         folded: p.folded,
-        cardsCount: p.hand.length
+        chips: p.chips
       }))
     };
   }
 
-  /* ---------- ПРИВАТНОЕ СОСТОЯНИЕ ИГРОКА ---------- */
-
   getPlayerPrivateState(playerId) {
     const player = this.players.find(p => p.id === playerId);
-    if (!player) return null;
-
-    return {
-      hand: player.hand
-    };
+    return player ? { hand: player.hand } : null;
   }
 }
 

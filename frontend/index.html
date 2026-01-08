@@ -1,197 +1,98 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <title>Poker Holdem</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<title>Poker</title>
 
-  <!-- Telegram WebApp -->
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
-  <!-- Socket.io -->
-  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background: #0b3d2e;
-      color: #fff;
-      margin: 0;
-      padding: 20px;
-    }
-
-    h2 {
-      margin-top: 0;
-    }
-
-    button {
-      padding: 10px 16px;
-      margin: 5px 0;
-      font-size: 16px;
-      cursor: pointer;
-    }
-
-    input {
-      padding: 10px;
-      font-size: 16px;
-      width: 100%;
-      margin-bottom: 10px;
-    }
-
-    .card {
-      display: inline-block;
-      padding: 10px;
-      margin: 5px;
-      background: #fff;
-      color: #000;
-      border-radius: 6px;
-      font-weight: bold;
-    }
-  </style>
+<style>
+body {
+  background:#0b3d2e;
+  color:#fff;
+  font-family:Arial;
+  padding:20px;
+}
+button {
+  padding:10px;
+  margin:5px;
+}
+.card {
+  background:#fff;
+  color:#000;
+  padding:8px;
+  margin:4px;
+  border-radius:6px;
+  display:inline-block;
+}
+</style>
 </head>
-<body>
 
+<body>
 <div id="app"></div>
 
 <script>
-/* ---------------- TELEGRAM ---------------- */
-
-const tg = window.Telegram.WebApp;
+const tg = Telegram.WebApp;
 tg.expand();
 
-const tgUser = tg.initDataUnsafe.user || {
-  id: Math.floor(Math.random() * 1000000),
-  first_name: 'Guest'
-};
-
-/* ---------------- SOCKET ---------------- */
-
+const me = tg.initDataUnsafe.user;
 const socket = io();
 
-/* ---------------- STATE ---------------- */
-
-let currentRoom = null;
+let room = null;
 let myCards = [];
 
-/* ---------------- UI RENDER ---------------- */
+/* ---------- render ---------- */
 
-function renderHome() {
-  document.getElementById('app').innerHTML = `
-    <h2>🃏 Poker Holdem</h2>
-
-    <button onclick="createRoom()">Создать комнату</button>
-
-    <hr>
-
-    <input id="roomCodeInput" placeholder="Код комнаты" />
-    <button onclick="joinRoom()">Войти в комнату</button>
-  `;
-}
-
-function renderRoom(room) {
-  const isHost = room.hostId === tgUser.id;
+function render(state) {
+  const current = state.players.find(p => p.id === state.currentPlayerId);
 
   document.getElementById('app').innerHTML = `
     <h2>Комната ${room.code}</h2>
 
-    <h3>Игроки:</h3>
+    <p>Ход: <b>${current.name}</b></p>
+
     <ul>
-      ${room.players.map(p => `<li>${p.name}</li>`).join('')}
-    </ul>
-
-    ${isHost ? `<button onclick="startGame()">Начать игру</button>` : ''}
-
-    <p>Ожидание старта...</p>
-  `;
-}
-
-function renderGame(publicState) {
-  document.getElementById('app').innerHTML = `
-    <h2>🎮 Игра началась</h2>
-
-    <h3>Игроки:</h3>
-    <ul>
-      ${publicState.players.map(p =>
-        `<li>${p.name} — ${p.chips} фишек</li>`
+      ${state.players.map(p =>
+        `<li>${p.name} ${p.folded ? '(fold)' : ''}</li>`
       ).join('')}
     </ul>
 
-    <h3>Ваши карты:</h3>
-    <div>
-      ${myCards.map(c =>
-        `<span class="card">${c.rank}${c.suit}</span>`
-      ).join('')}
-    </div>
+    <h3>Ваши карты</h3>
+    ${myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
 
-    <p>Улица: ${publicState.stage}</p>
+    <br><br>
+
+    ${state.currentPlayerId === me.id ? `
+      <button onclick="act('check')">Check</button>
+      <button onclick="act('fold')">Fold</button>
+    ` : '<p>Ожидание хода...</p>'}
   `;
 }
 
-/* ---------------- ACTIONS ---------------- */
+/* ---------- actions ---------- */
 
-function createRoom() {
-  socket.emit('create_room', {
-    user: {
-      id: tgUser.id,
-      name: tgUser.first_name
-    }
+function act(action) {
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action
   });
 }
 
-function joinRoom() {
-  const code = document.getElementById('roomCodeInput').value.trim().toUpperCase();
-  if (!code) return alert('Введите код комнаты');
+/* ---------- socket ---------- */
 
-  socket.emit('join_room', {
-    code,
-    user: {
-      id: tgUser.id,
-      name: tgUser.first_name
-    }
-  });
-}
-
-function startGame() {
-  socket.emit('start_game', { code: currentRoom.code });
-}
-
-/* ---------------- SOCKET EVENTS ---------------- */
-
-socket.on('room_joined', room => {
-  currentRoom = room;
-  renderRoom(room);
-});
-
-socket.on('room_update', room => {
-  currentRoom = room;
-  renderRoom(room);
-});
+socket.on('room_joined', r => room = r);
+socket.on('room_update', r => room = r);
 
 socket.on('game_started', ({ publicState }) => {
-  socket.emit('get_my_cards', {
-    code: currentRoom.code,
-    playerId: tgUser.id
-  });
-
-  renderGame(publicState);
+  socket.emit('get_my_cards', { code: room.code, playerId: me.id });
+  render(publicState);
 });
 
-socket.on('my_cards', cards => {
-  myCards = cards;
-  socket.emit('get_my_cards', {
-    code: currentRoom.code,
-    playerId: tgUser.id
-  });
-});
-
-socket.on('error_msg', msg => {
-  alert(msg);
-});
-
-/* ---------------- INIT ---------------- */
-
-renderHome();
+socket.on('my_cards', cards => myCards = cards);
+socket.on('game_update', render);
+socket.on('error_msg', alert);
 </script>
-
 </body>
 </html>
