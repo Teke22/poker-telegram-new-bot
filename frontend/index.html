@@ -18,6 +18,11 @@ button {
   padding:10px;
   margin:5px;
 }
+input {
+  padding:6px;
+  margin:5px;
+  width:80px;
+}
 .card {
   background:#fff;
   color:#000;
@@ -65,6 +70,7 @@ let room = null;
 let myCards = [];
 let gameStarted = false;
 let statusMessage = '';
+let lastState = null;
 
 /* ---------- UI ---------- */
 
@@ -99,18 +105,23 @@ function showRoom() {
 }
 
 function renderGame(state) {
+  lastState = state;
   document.getElementById('status').innerText = statusMessage;
 
   gameStarted = true;
   const current = state.players.find(p => p.id === state.currentPlayerId);
+  const meState = state.players.find(p => p.id === me.id);
 
   document.getElementById('app').innerHTML = `
-    <h2>Игра началась</h2>
+    <h2>Игра</h2>
+
+    <p>💰 Банк: <b>${state.pot}</b></p>
+    <p>💵 Текущая ставка: <b>${state.currentBet}</b></p>
     <p>Ход: <b>${current.name}</b></p>
 
     <ul>
       ${state.players.map(p =>
-        `<li>${p.name} ${p.folded ? '(fold)' : ''}</li>`
+        `<li>${p.name} ${p.folded ? '(fold)' : ''} — 💵 ${p.chips}</li>`
       ).join('')}
     </ul>
 
@@ -119,10 +130,32 @@ function renderGame(state) {
 
     <br><br>
 
-    ${state.currentPlayerId === me.id ? `
+    ${state.currentPlayerId === me.id ? renderActions(state, meState) : '<p>Ожидание хода...</p>'}
+  `;
+}
+
+function renderActions(state, meState) {
+  if (meState.folded) return '<p>Вы сбросили карты</p>';
+
+  if (state.currentBet === 0) {
+    return `
+      <input id="betAmount" type="number" min="1" placeholder="Bet">
+      <br>
+      <button onclick="bet()">Bet</button>
       <button onclick="act('check')">Check</button>
       <button onclick="act('fold')">Fold</button>
-    ` : '<p>Ожидание хода...</p>'}
+    `;
+  }
+
+  const toCall = state.currentBet - (meState.bet || 0);
+
+  return `
+    <p>Нужно доставить: ${toCall}</p>
+    <input id="raiseAmount" type="number" min="${state.currentBet + 1}" placeholder="Raise to">
+    <br>
+    <button onclick="call()">Call</button>
+    <button onclick="raise()">Raise</button>
+    <button onclick="act('fold')">Fold</button>
   `;
 }
 
@@ -146,6 +179,32 @@ function act(action) {
     code: room.code,
     playerId: me.id,
     action
+  });
+}
+
+function bet() {
+  const amount = Number(document.getElementById('betAmount').value);
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'bet', amount }
+  });
+}
+
+function call() {
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'call' }
+  });
+}
+
+function raise() {
+  const amount = Number(document.getElementById('raiseAmount').value);
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'raise', amount }
   });
 }
 
