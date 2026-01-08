@@ -20,21 +20,16 @@ function shuffle(deck) {
   return deck;
 }
 
-// 🃏 Функция сравнения карт (упрощенно)
+// 🔹 временно: сравнение по старшей карте
 function getHandRank(hand, community) {
-  // Временная реализация - сравнение по старшей карте
-  const allCards = [...hand, ...community];
-  
-  // Присваиваем числовые значения картам
-  const values = allCards.map(card => {
-    const rank = card.rank;
-    if (rank === 'A') return 14;
-    if (rank === 'K') return 13;
-    if (rank === 'Q') return 12;
-    if (rank === 'J') return 11;
-    return parseInt(rank);
+  const all = [...hand, ...community];
+  const values = all.map(c => {
+    if (c.rank === 'A') return 14;
+    if (c.rank === 'K') return 13;
+    if (c.rank === 'Q') return 12;
+    if (c.rank === 'J') return 11;
+    return parseInt(c.rank);
   });
-  
   return Math.max(...values);
 }
 
@@ -55,21 +50,23 @@ class GameState {
     this.stage = 'waiting';
     this.dealerIndex = 0;
     this.currentPlayerIndex = 0;
+
     this.finished = false;
     this.roundFinished = false;
 
-    // 🔹 Ставки
     this.pot = 0;
     this.currentBet = 0;
-    this.sidePots = [];
     this.lastAggressorIndex = null;
+
     this.smallBlind = 10;
     this.bigBlind = 20;
+
+    // 🔹 НОВОЕ
+    this.winner = null;
+    this.handEndReason = null;
   }
 
   startGame() {
-    if (this.players.length < 2) return;
-    
     this.deck = shuffle(createDeck());
     this.communityCards = [];
     this.stage = 'preflop';
@@ -79,8 +76,9 @@ class GameState {
     this.pot = 0;
     this.currentBet = 0;
     this.lastAggressorIndex = null;
-    
-    // Сброс состояния игроков
+    this.winner = null;
+    this.handEndReason = null;
+
     this.players.forEach(p => {
       p.hand = [this.deck.pop(), this.deck.pop()];
       p.folded = false;
@@ -88,31 +86,23 @@ class GameState {
       p.bet = 0;
     });
 
-    // Ставим блайнды
-    const sbIndex = (this.dealerIndex + 1) % this.players.length;
-    const bbIndex = (this.dealerIndex + 2) % this.players.length;
-    
-    this.postBlind(sbIndex, this.smallBlind, 'small');
-    this.postBlind(bbIndex, this.bigBlind, 'big');
-    
-    // Текущий игрок после big blind
-    this.currentPlayerIndex = (bbIndex + 1) % this.players.length;
+    const sb = (this.dealerIndex + 1) % this.players.length;
+    const bb = (this.dealerIndex + 2) % this.players.length;
+
+    this.postBlind(sb, this.smallBlind);
+    this.postBlind(bb, this.bigBlind);
+
+    this.currentPlayerIndex = (bb + 1) % this.players.length;
     this.currentBet = this.bigBlind;
   }
 
-  postBlind(playerIndex, amount, type) {
-    const player = this.players[playerIndex];
-    const actualAmount = Math.min(amount, player.chips);
-    
-    player.chips -= actualAmount;
-    player.bet = actualAmount;
-    this.pot += actualAmount;
-    
-    if (player.chips === 0) {
-      player.allIn = true;
-    }
-    
-    console.log(`🎲 ${player.name} posts ${type} blind: ${actualAmount}`);
+  postBlind(index, amount) {
+    const p = this.players[index];
+    const a = Math.min(amount, p.chips);
+    p.chips -= a;
+    p.bet = a;
+    this.pot += a;
+    if (p.chips === 0) p.allIn = true;
   }
 
   get currentPlayer() {
@@ -120,302 +110,165 @@ class GameState {
   }
 
   nextPlayer() {
-    let attempts = 0;
+    let i = 0;
     do {
-      this.currentPlayerIndex = 
+      this.currentPlayerIndex =
         (this.currentPlayerIndex + 1) % this.players.length;
-      attempts++;
-      
-      if (attempts > this.players.length) {
-        // Все игроки фолднули или all-in
-        return;
-      }
-      
-      const player = this.currentPlayer;
-      if (!player.folded && !player.allIn) {
-        break;
-      }
-    } while (true);
+      i++;
+    } while (
+      i < this.players.length &&
+      (this.currentPlayer.folded || this.currentPlayer.allIn)
+    );
   }
 
   playerAction(playerId, action) {
     if (this.finished || this.roundFinished) return;
 
-    const player = this.currentPlayer;
-
-    if (player.id !== playerId) {
-      console.log('⛔ Not your turn');
-      return;
-    }
-
-    console.log(`👤 ${player.name} →`, action);
+    const p = this.currentPlayer;
+    if (p.id !== playerId) return;
 
     if (action === 'fold') {
-      player.folded = true;
+      p.folded = true;
       this.checkHandCompletion();
       return;
     }
 
     if (action === 'check') {
-      if (this.currentBet > player.bet) {
-        console.log('⛔ Cannot check, bet exists');
-        return;
-      }
+      if (this.currentBet > p.bet) return;
       this.nextPlayer();
       this.checkBettingRoundCompletion();
+      return;
     }
 
     if (action?.type === 'bet') {
-      if (this.currentBet > 0) {
-        console.log('⛔ Cannot bet, bet already exists');
-        return;
-      }
-
-      const amount = action.amount;
-      if (amount < this.bigBlind || amount > player.chips) {
-        console.log('⛔ Invalid bet amount');
-        return;
-      }
-
-      this.makeBet(player, amount);
+      this.makeBet(p, action.amount);
       this.lastAggressorIndex = this.currentPlayerIndex;
       this.nextPlayer();
       this.checkBettingRoundCompletion();
     }
 
     if (action?.type === 'call') {
-      const toCall = this.currentBet - player.bet;
-      
-      if (toCall <= 0) {
-        console.log('⛔ Nothing to call');
-        return;
-      }
-
-      if (toCall >= player.chips) {
-        // All-in
-        this.makeBet(player, player.chips);
-        player.allIn = true;
-      } else {
-        this.makeBet(player, toCall);
-      }
-      
+      this.makeBet(p, this.currentBet - p.bet);
       this.nextPlayer();
       this.checkBettingRoundCompletion();
     }
 
     if (action?.type === 'raise') {
-      const minRaise = this.currentBet * 2;
-      const raiseTo = action.amount;
-      
-      if (raiseTo < minRaise) {
-        console.log('⛔ Raise must be at least double current bet');
-        return;
-      }
-
-      const toCall = raiseTo - player.bet;
-      
-      if (toCall > player.chips) {
-        console.log('⛔ Not enough chips');
-        return;
-      }
-
-      this.makeBet(player, toCall);
-      this.currentBet = raiseTo;
+      this.makeBet(p, action.amount - p.bet);
+      this.currentBet = action.amount;
       this.lastAggressorIndex = this.currentPlayerIndex;
       this.nextPlayer();
       this.checkBettingRoundCompletion();
     }
   }
 
-  makeBet(player, amount) {
-    const actualAmount = Math.min(amount, player.chips);
-    
-    player.chips -= actualAmount;
-    player.bet += actualAmount;
-    this.pot += actualAmount;
-    
-    if (player.chips === 0) {
-      player.allIn = true;
-    }
-    
-    // Обновляем максимальную ставку
-    if (player.bet > this.currentBet) {
-      this.currentBet = player.bet;
-    }
+  makeBet(p, amount) {
+    const a = Math.min(amount, p.chips);
+    p.chips -= a;
+    p.bet += a;
+    this.pot += a;
+    if (p.chips === 0) p.allIn = true;
   }
 
   checkBettingRoundCompletion() {
-    const activePlayers = this.players.filter(p => !p.folded);
-    
-    // Все ли уравняли ставки?
-    const allMatched = activePlayers.every(p => 
-      p.bet === this.currentBet || p.allIn
-    );
-    
-    if (!allMatched) return false;
-    
-    // Проверяем, завершился ли раунд
-    // Раунд завершен, если последний повышавший сделал ход
-    if (this.lastAggressorIndex === null) {
-      this.finishBettingRound();
-      return true;
-    }
-    
-    // Находим следующего активного игрока после агрессора
-    let nextPlayerIndex = (this.lastAggressorIndex + 1) % this.players.length;
-    let attempts = 0;
-    
-    while (attempts < this.players.length) {
-      const player = this.players[nextPlayerIndex];
-      
-      if (!player.folded && !player.allIn && player.bet === this.currentBet) {
-        // Нашли игрока, который уже уравнял и находится после агрессора
-        // значит раунд завершен
-        this.finishBettingRound();
-        return true;
-      }
-      
-      nextPlayerIndex = (nextPlayerIndex + 1) % this.players.length;
-      attempts++;
-    }
-    
-    return false;
+    const active = this.players.filter(p => !p.folded);
+    const matched = active.every(p => p.bet === this.currentBet || p.allIn);
+    if (!matched) return;
+
+    this.finishBettingRound();
   }
 
   finishBettingRound() {
-    console.log('🔁 Betting round finished');
     this.roundFinished = true;
-    
-    // Сброс ставок для следующего раунда
-    this.players.forEach(p => {
-      p.bet = 0;
-    });
-    
+
+    this.players.forEach(p => (p.bet = 0));
     this.currentBet = 0;
     this.lastAggressorIndex = null;
-    
-    setTimeout(() => {
-      this.advanceStage();
-    }, 1000);
+
+    setTimeout(() => this.advanceStage(), 800);
   }
 
   advanceStage() {
     this.roundFinished = false;
-    
-    switch (this.stage) {
-      case 'preflop':
-        this.stage = 'flop';
-        this.dealCommunityCards(3);
-        console.log('🟢 FLOP', this.communityCards);
-        this.setFirstPlayerAfterDealer();
-        break;
-        
-      case 'flop':
-        this.stage = 'turn';
-        this.dealCommunityCards(1);
-        console.log('🟡 TURN', this.communityCards);
-        this.setFirstPlayerAfterDealer();
-        break;
-        
-      case 'turn':
-        this.stage = 'river';
-        this.dealCommunityCards(1);
-        console.log('🔵 RIVER', this.communityCards);
-        this.setFirstPlayerAfterDealer();
-        break;
-        
-      case 'river':
-        console.log('🏁 SHOWDOWN');
-        this.finishHand();
-        break;
+
+    if (this.stage === 'preflop') {
+      this.stage = 'flop';
+      this.dealCommunityCards(3);
+    } else if (this.stage === 'flop') {
+      this.stage = 'turn';
+      this.dealCommunityCards(1);
+    } else if (this.stage === 'turn') {
+      this.stage = 'river';
+      this.dealCommunityCards(1);
+    } else {
+      this.finishHand('showdown');
+      return;
     }
+
+    this.setFirstPlayerAfterDealer();
   }
 
-  setFirstPlayerAfterDealer() {
-    // Находим первого активного игрока после дилера
-    for (let i = 1; i <= this.players.length; i++) {
-      const index = (this.dealerIndex + i) % this.players.length;
-      const player = this.players[index];
-      
-      if (!player.folded && !player.allIn) {
-        this.currentPlayerIndex = index;
-        this.lastAggressorIndex = null;
-        break;
-      }
-    }
-  }
-
-  dealCommunityCards(count) {
-    for (let i = 0; i < count; i++) {
+  dealCommunityCards(n) {
+    for (let i = 0; i < n; i++) {
       this.communityCards.push(this.deck.pop());
     }
   }
 
-  checkHandCompletion() {
-    const activePlayers = this.players.filter(p => !p.folded);
-    
-    if (activePlayers.length === 1) {
-      // Остался один игрок - он победитель
-      this.finishHand();
-    } else if (activePlayers.length === 0) {
-      // Все фолднули (маловероятно, но на всякий случай)
-      this.finishHand();
-    }
-  }
-
-  finishHand() {
-    this.finished = true;
-    
-    // Определяем победителя
-    const activePlayers = this.players.filter(p => !p.folded);
-    
-    if (activePlayers.length === 1) {
-      // Победитель по фолдам
-      const winner = activePlayers[0];
-      winner.chips += this.pot;
-      console.log(`🏆 Winner by fold: ${winner.name}`);
-      
-      // Перемещаем дилера
-      this.dealerIndex = (this.dealerIndex + 1) % this.players.length;
-    } else {
-      // Шоудаун - сравниваем комбинации
-      this.determineShowdownWinner();
-    }
-  }
-
-  determineShowdownWinner() {
-    const activePlayers = this.players.filter(p => !p.folded);
-    
-    if (activePlayers.length === 0) {
-      console.log('🤷 No active players');
-      return;
-    }
-    
-    // Упрощенное определение победителя (по старшей карте)
-    let bestRank = -1;
-    let winners = [];
-    
-    for (const player of activePlayers) {
-      const rank = getHandRank(player.hand, this.communityCards);
-      
-      if (rank > bestRank) {
-        bestRank = rank;
-        winners = [player];
-      } else if (rank === bestRank) {
-        winners.push(player);
+  setFirstPlayerAfterDealer() {
+    for (let i = 1; i <= this.players.length; i++) {
+      const idx = (this.dealerIndex + i) % this.players.length;
+      const p = this.players[idx];
+      if (!p.folded && !p.allIn) {
+        this.currentPlayerIndex = idx;
+        break;
       }
     }
-    
-    // Делим банк
-    const prize = Math.floor(this.pot / winners.length);
-    
-    for (const winner of winners) {
-      winner.chips += prize;
-      console.log(`🏆 Showdown winner: ${winner.name} (rank: ${bestRank})`);
+  }
+
+  checkHandCompletion() {
+    const active = this.players.filter(p => !p.folded);
+    if (active.length <= 1) {
+      this.finishHand('fold');
     }
-    
-    // Перемещаем дилера
+  }
+
+  finishHand(reason) {
+    if (this.finished) return;
+    this.finished = true;
+    this.handEndReason = reason;
+
+    const active = this.players.filter(p => !p.folded);
+
+    if (active.length === 1) {
+      this.winner = active[0];
+      this.winner.chips += this.pot;
+    } else {
+      let best = -1;
+      let winners = [];
+
+      for (const p of active) {
+        const r = getHandRank(p.hand, this.communityCards);
+        if (r > best) {
+          best = r;
+          winners = [p];
+        } else if (r === best) {
+          winners.push(p);
+        }
+      }
+
+      const prize = Math.floor(this.pot / winners.length);
+      winners.forEach(w => (w.chips += prize));
+      this.winner = winners[0];
+    }
+
     this.dealerIndex = (this.dealerIndex + 1) % this.players.length;
+    this.scheduleNextHand();
+  }
+
+  scheduleNextHand() {
+    setTimeout(() => {
+      this.startGame();
+    }, 3000);
   }
 
   getPublicState() {
@@ -423,9 +276,12 @@ class GameState {
       stage: this.stage,
       finished: this.finished,
       pot: this.pot,
-      currentBet: this.currentBet,
       communityCards: this.communityCards,
+      currentBet: this.currentBet,
       currentPlayerId: this.currentPlayer?.id || null,
+      winner: this.winner
+        ? { id: this.winner.id, name: this.winner.name }
+        : null,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -438,8 +294,8 @@ class GameState {
   }
 
   getPlayerPrivateState(playerId) {
-    const player = this.players.find(p => p.id === playerId);
-    return player ? { hand: player.hand } : null;
+    const p = this.players.find(p => p.id === playerId);
+    return p ? { hand: p.hand } : null;
   }
 }
 
