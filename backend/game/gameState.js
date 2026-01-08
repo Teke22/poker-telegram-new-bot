@@ -36,7 +36,7 @@ class GameState {
     this.currentPlayerIndex = 0;
     this.finished = false;
 
-    // 🔹 3.7.0 — ставки
+    // 🔹 ставки
     this.pot = 0;
     this.currentBet = 0;
     this.bets = {};
@@ -143,15 +143,14 @@ class GameState {
       this.nextPlayer();
     }
 
-    // 🔹 3.7.1 — проверка завершения круга ставок
     if (this.isBettingRoundComplete()) {
       console.log('🔁 Betting round finished');
       this.resetBetsForNextRound();
-      // stage пока не меняем (flop/turn/river — следующий шаг)
+      this.advanceStage();
     }
   }
 
-  // 🔹 3.7.1 — ВСЕ УРАВНЯЛИ?
+  // 🔹 ВСЕ УРАВНЯЛИ?
   isBettingRoundComplete() {
     const activePlayers = this.players.filter(p => !p.folded);
 
@@ -161,9 +160,7 @@ class GameState {
 
     if (!allMatched) return false;
 
-    if (this.currentBet === 0) {
-      return true; // круг чеков
-    }
+    if (this.currentBet === 0) return true;
 
     return this.currentPlayerIndex === this.lastAggressorIndex;
   }
@@ -174,6 +171,41 @@ class GameState {
     this.players.forEach(p => {
       this.bets[p.id] = 0;
     });
+  }
+
+  // 🔹 3.7.2 — ПЕРЕХОД СТАДИЙ
+  advanceStage() {
+    if (this.stage === 'preflop') {
+      this.stage = 'flop';
+      this.dealCommunityCards(3);
+      console.log('🟢 FLOP', this.communityCards);
+      return;
+    }
+
+    if (this.stage === 'flop') {
+      this.stage = 'turn';
+      this.dealCommunityCards(1);
+      console.log('🟡 TURN', this.communityCards);
+      return;
+    }
+
+    if (this.stage === 'turn') {
+      this.stage = 'river';
+      this.dealCommunityCards(1);
+      console.log('🔵 RIVER', this.communityCards);
+      return;
+    }
+
+    if (this.stage === 'river') {
+      console.log('🏁 SHOWDOWN');
+      this.finishHand();
+    }
+  }
+
+  dealCommunityCards(count) {
+    for (let i = 0; i < count; i++) {
+      this.communityCards.push(this.deck.pop());
+    }
   }
 
   finishHand() {
@@ -192,6 +224,7 @@ class GameState {
       finished: this.finished,
       pot: this.pot,
       currentBet: this.currentBet,
+      communityCards: this.communityCards,
       currentPlayerId: this.currentPlayer.id,
       players: this.players.map(p => ({
         id: p.id,
