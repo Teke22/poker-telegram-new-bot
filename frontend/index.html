@@ -104,6 +104,19 @@ function showRoom() {
   `;
 }
 
+function renderBoard(state) {
+  if (!state.communityCards?.length) {
+    return '<p>🂠 Борд пуст</p>';
+  }
+
+  return `
+    <h3>Борд (${state.stage})</h3>
+    ${state.communityCards.map(c =>
+      `<span class="card">${c.rank}${c.suit}</span>`
+    ).join('')}
+  `;
+}
+
 function renderGame(state) {
   lastState = state;
   document.getElementById('status').innerText = statusMessage;
@@ -115,9 +128,12 @@ function renderGame(state) {
   document.getElementById('app').innerHTML = `
     <h2>Игра</h2>
 
+    <p>📍 Стадия: <b>${state.stage}</b></p>
     <p>💰 Банк: <b>${state.pot}</b></p>
     <p>💵 Текущая ставка: <b>${state.currentBet}</b></p>
     <p>Ход: <b>${current.name}</b></p>
+
+    ${renderBoard(state)}
 
     <ul>
       ${state.players.map(p =>
@@ -130,7 +146,9 @@ function renderGame(state) {
 
     <br><br>
 
-    ${state.currentPlayerId === me.id ? renderActions(state, meState) : '<p>Ожидание хода...</p>'}
+    ${state.currentPlayerId === me.id
+      ? renderActions(state, meState)
+      : '<p>Ожидание хода...</p>'}
   `;
 }
 
