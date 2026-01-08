@@ -26,6 +26,11 @@ button {
   border-radius:6px;
   display:inline-block;
 }
+.box {
+  border:1px solid #fff;
+  padding:10px;
+  margin-top:10px;
+}
 </style>
 </head>
 
@@ -50,14 +55,11 @@ const socket = io({
   transports: ['websocket']
 });
 
-socket.on('connect', () => {
-  console.log('✅ Socket connected');
-});
-
 /* ---------- STATE ---------- */
 
 let room = null;
 let myCards = [];
+let gameStarted = false;
 
 /* ---------- UI ---------- */
 
@@ -71,11 +73,30 @@ function showLobby() {
   `;
 }
 
+function showRoom() {
+  document.getElementById('app').innerHTML = `
+    <h2>Комната</h2>
+    <p><b>Код:</b> ${room.code}</p>
+
+    <div class="box">
+      <h3>Игроки</h3>
+      <ul>
+        ${room.players.map(p => `<li>${p.name}</li>`).join('')}
+      </ul>
+    </div>
+
+    ${room.players.length >= 2 ? `
+      <button onclick="startGame()">Начать игру</button>
+    ` : `<p>Ожидание второго игрока…</p>`}
+  `;
+}
+
 function renderGame(state) {
+  gameStarted = true;
   const current = state.players.find(p => p.id === state.currentPlayerId);
 
   document.getElementById('app').innerHTML = `
-    <h2>Комната ${room.code}</h2>
+    <h2>Игра началась</h2>
     <p>Ход: <b>${current.name}</b></p>
 
     <ul>
@@ -107,6 +128,10 @@ function joinRoom() {
   socket.emit('join_room', { code, user: me });
 }
 
+function startGame() {
+  socket.emit('start_game', { code: room.code });
+}
+
 function act(action) {
   socket.emit('player_action', {
     code: room.code,
@@ -119,10 +144,13 @@ function act(action) {
 
 socket.on('room_joined', r => {
   room = r;
-  socket.emit('start_game', { code: room.code });
+  showRoom();
 });
 
-socket.on('room_update', r => room = r);
+socket.on('room_update', r => {
+  room = r;
+  if (!gameStarted) showRoom();
+});
 
 socket.on('game_started', ({ publicState }) => {
   socket.emit('get_my_cards', { code: room.code, playerId: me.id });
