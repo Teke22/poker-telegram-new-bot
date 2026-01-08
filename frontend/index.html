@@ -35,20 +35,27 @@ button {
 <script>
 const tg = window.Telegram?.WebApp;
 
-/* ---------- user ---------- */
+/* ---------- USER ---------- */
 
-let me = null;
-
+let me;
 if (tg && tg.initDataUnsafe?.user) {
   me = tg.initDataUnsafe.user;
 } else {
-  // fallback для браузера
-  me = { id: 'debug', name: 'DebugUser' };
+  me = { id: 'debug', first_name: 'Debug' };
 }
 
-/* ---------- socket ---------- */
+/* ---------- SOCKET ---------- */
 
-const socket = io();
+const socket = io({
+  transports: ['websocket']
+});
+
+socket.on('connect', () => {
+  console.log('✅ Socket connected');
+});
+
+/* ---------- STATE ---------- */
+
 let room = null;
 let myCards = [];
 
@@ -89,7 +96,7 @@ function renderGame(state) {
   `;
 }
 
-/* ---------- actions ---------- */
+/* ---------- ACTIONS ---------- */
 
 function createRoom() {
   socket.emit('create_room', { user: me });
@@ -108,7 +115,7 @@ function act(action) {
   });
 }
 
-/* ---------- socket events ---------- */
+/* ---------- SOCKET EVENTS ---------- */
 
 socket.on('room_joined', r => {
   room = r;
@@ -122,11 +129,11 @@ socket.on('game_started', ({ publicState }) => {
   renderGame(publicState);
 });
 
-socket.on('my_cards', cards => myCards = cards);
 socket.on('game_update', renderGame);
+socket.on('my_cards', cards => myCards = cards);
 socket.on('error_msg', alert);
 
-/* ---------- start ---------- */
+/* ---------- START ---------- */
 
 showLobby();
 </script>

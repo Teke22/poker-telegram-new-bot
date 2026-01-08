@@ -11,12 +11,12 @@ const { GameState } = require('./game/gameState');
 const app = express();
 const server = http.createServer(app);
 
-/* ---------- middleware ---------- */
+/* ---------------- MIDDLEWARE ---------------- */
 
 app.use(cors());
 app.use(express.json());
 
-/* ---------- frontend ---------- */
+/* ---------------- FRONTEND ---------------- */
 
 const frontendPath = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendPath));
@@ -25,13 +25,16 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
 });
 
-/* ---------- socket.io ---------- */
+/* ---------------- SOCKET.IO ---------------- */
 
 const io = new Server(server, {
-  cors: { origin: '*' }
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST']
+  }
 });
 
-/* ---------- rooms ---------- */
+/* ---------------- ROOMS ---------------- */
 
 const rooms = {};
 
@@ -40,21 +43,22 @@ function generateRoomCode() {
 }
 
 io.on('connection', socket => {
-  console.log('🔌 connected:', socket.id);
+  console.log('🔌 User connected:', socket.id);
 
   socket.on('create_room', ({ user }) => {
     const code = generateRoomCode();
 
     rooms[code] = {
       code,
-      hostId: user.id,
-      players: [{ id: user.id, name: user.name, chips: 1000 }],
+      players: [{ id: user.id, name: user.first_name || user.name, chips: 1000 }],
       game: null
     };
 
     socket.join(code);
     socket.emit('room_joined', rooms[code]);
     io.to(code).emit('room_update', rooms[code]);
+
+    console.log(`🏠 Room ${code} created`);
   });
 
   socket.on('join_room', ({ code, user }) => {
@@ -63,10 +67,16 @@ io.on('connection', socket => {
 
     if (room.players.find(p => p.id === user.id)) return;
 
-    room.players.push({ id: user.id, name: user.name, chips: 1000 });
-    socket.join(code);
+    room.players.push({
+      id: user.id,
+      name: user.first_name || user.name,
+      chips: 1000
+    });
 
+    socket.join(code);
     io.to(code).emit('room_update', room);
+
+    console.log(`👤 ${user.first_name} joined ${code}`);
   });
 
   socket.on('start_game', ({ code }) => {
@@ -79,14 +89,8 @@ io.on('connection', socket => {
     io.to(code).emit('game_started', {
       publicState: room.game.getPublicState()
     });
-  });
 
-  socket.on('get_my_cards', ({ code, playerId }) => {
-    const room = rooms[code];
-    if (!room || !room.game) return;
-
-    const state = room.game.getPlayerPrivateState(playerId);
-    if (state) socket.emit('my_cards', state.hand);
+    console.log(`🎮 Game started in ${code}`);
   });
 
   socket.on('player_action', ({ code, playerId, action }) => {
@@ -95,14 +99,25 @@ io.on('connection', socket => {
 
     try {
       room.game.playerAction(playerId, action);
+
       io.to(code).emit('game_update', room.game.getPublicState());
     } catch (e) {
       socket.emit('error_msg', e.message);
     }
   });
+
+  socket.on('get_my_cards', ({ code, playerId }) => {
+    const room = rooms[code];
+    if (!room || !room.game) return;
+
+    const privateState = room.game.getPlayerPrivateState(playerId);
+    if (privateState) {
+      socket.emit('my_cards', privateState.hand);
+    }
+  });
 });
 
-/* ---------- start ---------- */
+/* ---------------- START ---------------- */
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
