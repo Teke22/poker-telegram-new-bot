@@ -33,23 +33,42 @@ button {
 <div id="app"></div>
 
 <script>
-const tg = Telegram.WebApp;
-tg.expand();
+const tg = window.Telegram?.WebApp;
 
-const me = tg.initDataUnsafe.user;
+/* ---------- user ---------- */
+
+let me = null;
+
+if (tg && tg.initDataUnsafe?.user) {
+  me = tg.initDataUnsafe.user;
+} else {
+  // fallback для браузера
+  me = { id: 'debug', name: 'DebugUser' };
+}
+
+/* ---------- socket ---------- */
+
 const socket = io();
-
 let room = null;
 let myCards = [];
 
-/* ---------- render ---------- */
+/* ---------- UI ---------- */
 
-function render(state) {
+function showLobby() {
+  document.getElementById('app').innerHTML = `
+    <h2>Poker Lobby</h2>
+    <button onclick="createRoom()">Создать комнату</button>
+    <br><br>
+    <input id="code" placeholder="Код комнаты">
+    <button onclick="joinRoom()">Войти</button>
+  `;
+}
+
+function renderGame(state) {
   const current = state.players.find(p => p.id === state.currentPlayerId);
 
   document.getElementById('app').innerHTML = `
     <h2>Комната ${room.code}</h2>
-
     <p>Ход: <b>${current.name}</b></p>
 
     <ul>
@@ -72,6 +91,15 @@ function render(state) {
 
 /* ---------- actions ---------- */
 
+function createRoom() {
+  socket.emit('create_room', { user: me });
+}
+
+function joinRoom() {
+  const code = document.getElementById('code').value.toUpperCase();
+  socket.emit('join_room', { code, user: me });
+}
+
 function act(action) {
   socket.emit('player_action', {
     code: room.code,
@@ -80,19 +108,27 @@ function act(action) {
   });
 }
 
-/* ---------- socket ---------- */
+/* ---------- socket events ---------- */
 
-socket.on('room_joined', r => room = r);
+socket.on('room_joined', r => {
+  room = r;
+  socket.emit('start_game', { code: room.code });
+});
+
 socket.on('room_update', r => room = r);
 
 socket.on('game_started', ({ publicState }) => {
   socket.emit('get_my_cards', { code: room.code, playerId: me.id });
-  render(publicState);
+  renderGame(publicState);
 });
 
 socket.on('my_cards', cards => myCards = cards);
-socket.on('game_update', render);
+socket.on('game_update', renderGame);
 socket.on('error_msg', alert);
+
+/* ---------- start ---------- */
+
+showLobby();
 </script>
 </body>
 </html>
