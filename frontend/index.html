@@ -35,6 +35,10 @@ button {
 </head>
 
 <body>
+
+<!-- 🔔 STATUS -->
+<div id="status" style="margin-bottom:10px;font-weight:bold;"></div>
+
 <div id="app"></div>
 
 <script>
@@ -60,10 +64,12 @@ const socket = io({
 let room = null;
 let myCards = [];
 let gameStarted = false;
+let statusMessage = '';
 
 /* ---------- UI ---------- */
 
 function showLobby() {
+  document.getElementById('status').innerText = '';
   document.getElementById('app').innerHTML = `
     <h2>Poker Lobby</h2>
     <button onclick="createRoom()">Создать комнату</button>
@@ -74,6 +80,7 @@ function showLobby() {
 }
 
 function showRoom() {
+  document.getElementById('status').innerText = statusMessage;
   document.getElementById('app').innerHTML = `
     <h2>Комната</h2>
     <p><b>Код:</b> ${room.code}</p>
@@ -92,6 +99,8 @@ function showRoom() {
 }
 
 function renderGame(state) {
+  document.getElementById('status').innerText = statusMessage;
+
   gameStarted = true;
   const current = state.players.find(p => p.id === state.currentPlayerId);
 
@@ -153,11 +162,22 @@ socket.on('room_update', r => {
 });
 
 socket.on('game_started', ({ publicState }) => {
+  statusMessage = '';
+  document.getElementById('status').innerText = '';
   socket.emit('get_my_cards', { code: room.code, playerId: me.id });
   renderGame(publicState);
 });
 
 socket.on('game_update', renderGame);
+
+socket.on('hand_finished', ({ winner }) => {
+  statusMessage = winner
+    ? `🏆 Победитель: ${winner.name}`
+    : '🏁 Рука завершена';
+
+  document.getElementById('status').innerText = statusMessage;
+});
+
 socket.on('my_cards', cards => myCards = cards);
 socket.on('error_msg', alert);
 
