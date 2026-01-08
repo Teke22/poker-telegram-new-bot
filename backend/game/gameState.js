@@ -1,5 +1,3 @@
-// backend/game/gameState.js
-
 function createDeck() {
   const suits = ['♠', '♥', '♦', '♣'];
   const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
@@ -36,6 +34,7 @@ class GameState {
     this.communityCards = [];
     this.stage = 'preflop';
     this.currentPlayerIndex = 0;
+    this.finished = false; // 🔹 ДОБАВИЛИ
   }
 
   startGame() {
@@ -43,6 +42,7 @@ class GameState {
     this.communityCards = [];
     this.stage = 'preflop';
     this.currentPlayerIndex = 0;
+    this.finished = false;
 
     this.players.forEach(p => {
       p.hand = [this.deck.pop(), this.deck.pop()];
@@ -55,33 +55,46 @@ class GameState {
   }
 
   nextPlayer() {
+    let safety = 0;
     do {
       this.currentPlayerIndex =
         (this.currentPlayerIndex + 1) % this.players.length;
-    } while (this.currentPlayer.folded);
+      safety++;
+    } while (this.currentPlayer.folded && safety < this.players.length);
   }
 
   playerAction(playerId, action) {
+    if (this.finished) return;
+
     const player = this.currentPlayer;
 
     if (player.id !== playerId) {
-      throw new Error('Сейчас не ваш ход');
+      console.log('⛔ Not your turn');
+      return; // 🔹 УБРАЛИ throw
     }
+
+    console.log(`👤 ${player.name} → ${action}`);
 
     if (action === 'fold') {
       player.folded = true;
+      this.finishHand();
+      return;
     }
 
     if (action === 'check') {
-      // ничего не меняем
+      this.nextPlayer();
     }
+  }
 
-    this.nextPlayer();
+  finishHand() {
+    this.finished = true;
+    console.log('🏁 Hand finished');
   }
 
   getPublicState() {
     return {
       stage: this.stage,
+      finished: this.finished,
       currentPlayerId: this.currentPlayer.id,
       players: this.players.map(p => ({
         id: p.id,
