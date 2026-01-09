@@ -1,3 +1,4 @@
+const HandEvaluator = require('./handEvaluator');
 const config = require('../config');
 
 function createDeck() {
@@ -20,22 +21,6 @@ function shuffle(deck) {
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
   return deck;
-}
-
-// Функция сравнения карт (упрощенная - по старшей карте)
-function getHandRank(hand, community) {
-  const allCards = [...hand, ...community];
-  
-  const values = allCards.map(card => {
-    const rank = card.rank;
-    if (rank === 'A') return 14;
-    if (rank === 'K') return 13;
-    if (rank === 'Q') return 12;
-    if (rank === 'J') return 11;
-    return parseInt(rank);
-  });
-  
-  return Math.max(...values);
 }
 
 class GameState {
@@ -67,6 +52,7 @@ class GameState {
     this.bigBlind = config.BIG_BLIND;
     this.lastAggressorIndex = null;
     this.allInPlayers = []; // Игроки, которые сделали all-in
+    this.sidePots = []; // Для side pots при all-in
   }
 
   startGame() {
@@ -91,6 +77,7 @@ class GameState {
     this.roundFinished = false;
     this.actionsInCurrentStage = 0;
     this.allInPlayers = [];
+    this.sidePots = [];
     this.pot = 0;
     this.currentBet = 0;
     this.lastAggressorIndex = null;
@@ -620,8 +607,8 @@ class GameState {
       winner.chips += this.pot;
       console.log(`🏆 Winner by fold: ${winner.name} wins ${this.pot}`);
     } else if (activePlayers.length > 1) {
-      // Шоудаун
-      console.log('🏆 SHOWDOWN! Comparing hands...');
+      // Шоудаун с настоящей покерной логикой
+      console.log('🏆 SHOWDOWN! Comparing hands with real poker rules...');
       this.determineShowdownWinner();
     } else {
       console.log('🤷 No active players, pot returned');
@@ -633,6 +620,7 @@ class GameState {
     console.log(`🏁 Hand finished. Game finished: ${this.finished}`);
   }
 
+  // НОВЫЙ МЕТОД: Настоящая покерная логика определения победителя
   determineShowdownWinner() {
     const activePlayers = this.players.filter(p => !p.folded);
     
@@ -641,36 +629,99 @@ class GameState {
       return;
     }
     
-    // Упрощенное определение победителя (по старшей карте)
-    let bestRank = -1;
-    let winners = [];
-    
     console.log('🃏 Showdown hands:');
+    const playerHands = [];
+    
     for (const player of activePlayers) {
-      const rank = getHandRank(player.hand, this.communityCards);
-      console.log(`${player.name}: ${player.hand.map(c => `${c.rank}${c.suit}`).join(' ')} (rank: ${rank})`);
+      // Собираем все карты (2 карты игрока + 5 карт на столе)
+      const allCards = [...player.hand, ...this.communityCards];
       
-      if (rank > bestRank) {
-        bestRank = rank;
-        winners = [player];
-      } else if (rank === bestRank) {
-        winners.push(player);
-      }
+      // Конвертируем карты в формат для HandEvaluator
+      const evaluatorCards = allCards.map(card => ({
+        rank: card.rank,
+        suit: card.suit === '♠' ? 'spades' : 
+              card.suit === '♥' ? 'hearts' : 
+              card.suit === '♦' ? 'diamonds' : 'clubs'
+      }));
+      
+      // Оцениваем руку с помощью HandEvaluator
+      const handRank = HandEvaluator.evaluate(evaluatorCards);
+      
+      console.log(`${player.name}: ${player.hand.map(c => `${c.rank}${c.suit}`).join(' ')} - ${handRank.name}`);
+      
+      playerHands.push({
+        player: player,
+        handRank: handRank,
+        cards: allCards
+      });
     }
+    
+    // Сортируем игроков по силе руки (от сильной к слабой)
+    playerHands.sort((a, b) => {
+      return HandEvaluator.compareHands(b.handRank, a.handRank);
+    });
+    
+    // Находим победителей (может быть несколько при равных комбинациях)
+    const bestHand = playerHands[0].handRank;
+    const winners = playerHands.filter(p => 
+      HandEvaluator.compareHands(p.handRank, bestHand) === 0
+    );
     
     // Делим банк
     const prize = Math.floor(this.pot / winners.length);
     const remainder = this.pot % winners.length;
     
-    for (const winner of winners) {
-      winner.chips += prize;
-      if (remainder > 0 && winner === winners[0]) {
-        winner.chips += remainder; // Остаток первому победителю
-      }
-      console.log(`🎯 ${winner.name} wins ${prize + (remainder > 0 && winner === winners[0] ? remainder : 0)}`);
+    console.log(`💰 Pot: ${this.pot}, Winners: ${winners.length}, Prize per winner: ${prize}`);
+    
+    for (const [index, winner] of winners.entries()) {
+      const winAmount = prize + (remainder > 0 && index === 0 ? remainder : 0);
+      winner.player.chips += winAmount;
+      console.log(`🎯 ${winner.player.name} wins ${winAmount} with ${winner.handRank.name}`);
     }
     
-    console.log(`💰 Pot distributed. Winners: ${winners.map(w => w.name).join(', ')}`);
+    console.log(`💰 Pot distributed. Winners: ${winners.map(w => w.player.name).join(', ')}`);
+  }
+
+  // Обновленный метод для получения победителя
+  getWinner() {
+    const activePlayers = this.players.filter(p => !p.folded);
+    
+    if (activePlayers.length === 1) {
+      return activePlayers[0];
+    }
+    
+    // В шоудауне используем новую логику оценки
+    if (activePlayers.length > 1) {
+      const playerHands = [];
+      
+      for (const player of activePlayers) {
+        const allCards = [...player.hand, ...this.communityCards];
+        const evaluatorCards = allCards.map(card => ({
+          rank: card.rank,
+          suit: card.suit === '♠' ? 'spades' : 
+                card.suit === '♥' ? 'hearts' : 
+                card.suit === '♦' ? 'diamonds' : 'clubs'
+        }));
+        
+        const handRank = HandEvaluator.evaluate(evaluatorCards);
+        playerHands.push({ player, handRank });
+      }
+      
+      // Находим игрока с лучшей рукой
+      let bestPlayer = playerHands[0].player;
+      let bestHand = playerHands[0].handRank;
+      
+      for (let i = 1; i < playerHands.length; i++) {
+        if (HandEvaluator.compareHands(playerHands[i].handRank, bestHand) > 0) {
+          bestHand = playerHands[i].handRank;
+          bestPlayer = playerHands[i].player;
+        }
+      }
+      
+      return bestPlayer;
+    }
+    
+    return null;
   }
 
   // Метод для выхода игрока из игры
@@ -686,36 +737,6 @@ class GameState {
         this.players = this.players.filter(p => p.id !== playerId);
       }
     }
-  }
-
-  // Метод для получения победителя
-  getWinner() {
-    const activePlayers = this.players.filter(p => !p.folded);
-    
-    if (activePlayers.length === 1) {
-      return activePlayers[0];
-    }
-    
-    // В шоудауне определяем победителя по старшей карте
-    if (activePlayers.length > 1) {
-      let bestRank = -1;
-      let winner = null;
-      
-      for (const player of activePlayers) {
-        const rank = getHandRank(player.hand, this.communityCards);
-        if (rank > bestRank) {
-          bestRank = rank;
-          winner = player;
-        } else if (rank === bestRank && !winner) {
-          // При равенстве - первый игрок
-          winner = player;
-        }
-      }
-      
-      return winner;
-    }
-    
-    return null;
   }
 
   getPublicState() {
