@@ -7,6 +7,7 @@ const path = require('path');
 const { Server } = require('socket.io');
 
 const { GameState } = require('./game/gameState');
+const config = require('./config'); // ← ДОБАВЛЕНО
 
 const app = express();
 const server = http.createServer(app);
@@ -85,19 +86,21 @@ function startNewHand(room) {
       return false;
     }
     
-    // Обновляем фишки игроков в состоянии игры
-    room.game.players.forEach(gamePlayer => {
-      const roomPlayer = room.players.find(p => p.id === gamePlayer.id);
-      if (roomPlayer) {
-        gamePlayer.chips = roomPlayer.chips;
-      }
-    });
+    // ВАЖНО: Создаем новую игру с актуальными фишками игроков
+    const playersWithUpdatedChips = room.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      chips: p.chips,
+      isBot: p.isBot || false
+    }));
+    
+    // Создаем новую игру с обновленными фишками
+    room.game = new GameState(playersWithUpdatedChips);
     
     // Запускаем новую раздачу
     room.game.startGame();
     
     if (room.game.stage === 'waiting') {
-      // Игра не запустилась
       room.game = null;
       io.to(room.code).emit('room_update', room);
       return false;
@@ -114,7 +117,6 @@ function startNewHand(room) {
       }
     });
     
-    // Отправляем начальное состояние игры
     io.to(room.code).emit('game_started', {
       publicState: room.game.getPublicState()
     });
@@ -157,19 +159,26 @@ io.on('connection', socket => {
               if (room.game.finished) {
                 const winner = room.game.getWinner();
                 
-                // ✅ ЗДЕСЬ ДОБАВЛЯЕМ АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК
                 setTimeout(() => {
                   io.to(code).emit('hand_finished', {
                     winner: winner ? { id: winner.id, name: winner.name } : null,
                     reason: 'disconnect'
                   });
                   
-                  // ⏰ Автоматический запуск новой раздачи через 3 секунды
+                  // Обновляем фишки
+                  room.game.players.forEach(gamePlayer => {
+                    const roomPlayer = room.players.find(p => p.id === gamePlayer.id);
+                    if (roomPlayer) {
+                      roomPlayer.chips = gamePlayer.chips;
+                    }
+                  });
+                  
+                  // Автоматический перезапуск
                   setTimeout(() => {
-                    if (rooms[code]) { // Проверяем что комната еще существует
+                    if (rooms[code]) {
                       startNewHand(rooms[code]);
                     }
-                  }, config.NEXT_HAND_DELAY || 3000);
+                  }, config.NEXT_HAND_DELAY);
                   
                 }, 1000);
               }
@@ -205,7 +214,8 @@ io.on('connection', socket => {
         players: [{ 
           id: user.id, 
           name: user.first_name || user.name || 'Player', 
-          chips: 1000 
+          chips: 1000,
+          isBot: false
         }],
         game: null,
         createdAt: new Date()
@@ -250,7 +260,8 @@ io.on('connection', socket => {
       room.players.push({
         id: user.id,
         name: user.first_name || user.name || 'Player',
-        chips: 1000
+        chips: 1000,
+        isBot: false
       });
       
       socket.join(code);
@@ -307,8 +318,20 @@ io.on('connection', socket => {
         return;
       }
       
-      room.game = new GameState(room.players);
+      const playersForGame = room.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        chips: p.chips,
+        isBot: p.isBot || false
+      }));
+      
+      room.game = new GameState(playersForGame);
       room.game.startGame();
+      
+      if (room.game.stage === 'waiting') {
+        socket.emit('error_msg', 'Не удалось начать игру');
+        return;
+      }
       
       room.players.forEach(player => {
         const privateState = room.game.getPlayerPrivateState(player.id);
@@ -351,7 +374,7 @@ io.on('connection', socket => {
       
       io.to(code).emit('game_update', room.game.getPublicState());
       
-      // ✅ ОБРАБОТКА ЗАВЕРШЕНИЯ РАЗДАЧИ С АВТОПЕРЕЗАПУСКОМ
+      // ОБРАБОТКА ЗАВЕРШЕНИЯ РАЗДАЧИ
       if (room.game.finished) {
         const winner = room.game.getWinner();
         
@@ -360,20 +383,21 @@ io.on('connection', socket => {
           reason: room.game.players.filter(p => !p.folded).length === 1 ? 'fold' : 'showdown'
         });
         
-        // Обновляем фишки игроков в комнате
-        room.players.forEach(roomPlayer => {
-          const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
-          if (gamePlayer) {
+        // ВАЖНО: Обновляем фишки игроков в комнате
+        room.game.players.forEach(gamePlayer => {
+          const roomPlayer = room.players.find(p => p.id === gamePlayer.id);
+          if (roomPlayer) {
             roomPlayer.chips = gamePlayer.chips;
+            console.log(`💰 ${roomPlayer.name} chips updated to ${roomPlayer.chips}`);
           }
         });
         
-        // ✅ ЗДЕСЬ ГЛАВНОЕ: АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК ЧЕРЕЗ 3 СЕКУНДЫ
+        // Автоматический перезапуск через 3 секунды
         setTimeout(() => {
-          if (rooms[code]) { // Проверяем что комната все еще существует
+          if (rooms[code]) {
             startNewHand(room);
           }
-        }, config.NEXT_HAND_DELAY || 3000);
+        }, config.NEXT_HAND_DELAY);
       }
       
       if (room.game.currentPlayer?.id === playerId) {
@@ -435,19 +459,20 @@ io.on('connection', socket => {
                 reason: 'player_left'
               });
               
-              room.players.forEach(roomPlayer => {
-                const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
-                if (gamePlayer) {
+              // Обновляем фишки
+              room.game.players.forEach(gamePlayer => {
+                const roomPlayer = room.players.find(p => p.id === gamePlayer.id);
+                if (roomPlayer) {
                   roomPlayer.chips = gamePlayer.chips;
                 }
               });
               
-              // ✅ АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК И ДЛЯ ВЫШЕДШИХ ИГРОКОВ
+              // Автоматический перезапуск
               setTimeout(() => {
                 if (rooms[code] && rooms[code].players.length >= 2) {
                   startNewHand(rooms[code]);
                 }
-              }, config.NEXT_HAND_DELAY || 3000);
+              }, config.NEXT_HAND_DELAY);
               
             }, 1000);
           }
@@ -488,19 +513,20 @@ io.on('connection', socket => {
                 reason: 'player_left'
               });
               
-              room.players.forEach(roomPlayer => {
-                const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
-                if (gamePlayer) {
+              // Обновляем фишки
+              room.game.players.forEach(gamePlayer => {
+                const roomPlayer = room.players.find(p => p.id === gamePlayer.id);
+                if (roomPlayer) {
                   roomPlayer.chips = gamePlayer.chips;
                 }
               });
               
-              // ✅ АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК
+              // Автоматический перезапуск
               setTimeout(() => {
                 if (rooms[code] && rooms[code].players.length >= 2) {
                   startNewHand(rooms[code]);
                 }
-              }, config.NEXT_HAND_DELAY || 3000);
+              }, config.NEXT_HAND_DELAY);
               
             }, 1000);
           }
