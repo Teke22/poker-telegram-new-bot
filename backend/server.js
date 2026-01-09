@@ -43,27 +43,25 @@ const io = new Server(server, {
 /* ---------------- ROOMS ---------------- */
 
 const rooms = {};
-const userSockets = {}; // Для отслеживания пользователей
+const userSockets = {};
 
 function generateRoomCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Исключаем похожие символы
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 5; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   
-  // Проверяем уникальность
   if (!rooms[code]) {
     return code;
   }
-  return generateRoomCode(); // Рекурсия если код занят
+  return generateRoomCode();
 }
 
 function cleanupRoom(code) {
   const room = rooms[code];
   if (!room) return;
   
-  // Удаляем комнату если пустая
   if (room.players.length === 0) {
     delete rooms[code];
     console.log(`🗑️ Room ${code} deleted (empty)`);
@@ -74,6 +72,8 @@ function cleanupRoom(code) {
 function startNewHand(room) {
   try {
     if (!room || !room.game) return false;
+    
+    console.log(`🔄 Starting new hand in room ${room.code}`);
     
     // Фильтруем игроков с фишками
     const playersWithChips = room.players.filter(p => p.chips > 0);
@@ -97,7 +97,7 @@ function startNewHand(room) {
     room.game.startGame();
     
     if (room.game.stage === 'waiting') {
-      // Игра не запустилась (недостаточно игроков)
+      // Игра не запустилась
       room.game = null;
       io.to(room.code).emit('room_update', room);
       return false;
@@ -114,11 +114,12 @@ function startNewHand(room) {
       }
     });
     
+    // Отправляем начальное состояние игры
     io.to(room.code).emit('game_started', {
       publicState: room.game.getPublicState()
     });
     
-    console.log(`♻️ New hand started in ${room.code}`);
+    console.log(`♻️ New hand started in ${room.code}, stage: ${room.game.stage}`);
     return true;
   } catch (error) {
     console.error('Error starting new hand:', error);
@@ -132,7 +133,6 @@ io.on('connection', socket => {
   socket.on('disconnect', () => {
     console.log('🔌 User disconnected:', socket.id);
     
-    // Находим пользователя по socket.id
     let disconnectedUserId = null;
     for (const [userId, socketId] of Object.entries(userSockets)) {
       if (socketId === socket.id) {
@@ -143,34 +143,34 @@ io.on('connection', socket => {
     }
     
     if (disconnectedUserId) {
-      // Обрабатываем отключение во всех комнатах
       for (const [code, room] of Object.entries(rooms)) {
         const player = room.players.find(p => p.id === disconnectedUserId);
         if (player) {
           console.log(`⚠️ Player ${player.name} disconnected from ${code}`);
           
-          // Если игра идет, обрабатываем как фолд
           if (room.game && room.game.stage !== 'waiting') {
             try {
               room.game.playerLeave(disconnectedUserId);
               
-              // Отправляем обновленное состояние
               io.to(code).emit('game_update', room.game.getPublicState());
               
-              // Проверяем завершение игры
               if (room.game.finished) {
                 const winner = room.game.getWinner();
                 
+                // ✅ ЗДЕСЬ ДОБАВЛЯЕМ АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК
                 setTimeout(() => {
                   io.to(code).emit('hand_finished', {
                     winner: winner ? { id: winner.id, name: winner.name } : null,
                     reason: 'disconnect'
                   });
                   
-                  // Запускаем новую раздачу через 3 секунды
+                  // ⏰ Автоматический запуск новой раздачи через 3 секунды
                   setTimeout(() => {
-                    startNewHand(room);
-                  }, 3000);
+                    if (rooms[code]) { // Проверяем что комната еще существует
+                      startNewHand(rooms[code]);
+                    }
+                  }, config.NEXT_HAND_DELAY || 3000);
+                  
                 }, 1000);
               }
             } catch (error) {
@@ -178,20 +178,17 @@ io.on('connection', socket => {
             }
           }
           
-          // Удаляем игрока из комнаты через 30 секунд если не переподключился
           setTimeout(() => {
             if (rooms[code] && !userSockets[disconnectedUserId]) {
               rooms[code].players = rooms[code].players.filter(p => p.id !== disconnectedUserId);
               
               if (rooms[code].players.length === 0) {
                 delete rooms[code];
-                console.log(`🗑️ Room ${code} deleted (empty after disconnect)`);
               } else {
                 io.to(code).emit('room_update', rooms[code]);
-                console.log(`👋 Disconnected player ${player.name} removed from ${code}`);
               }
             }
-          }, 30000); // 30 секунд на переподключение
+          }, 30000);
         }
       }
     }
@@ -201,7 +198,6 @@ io.on('connection', socket => {
     try {
       const code = generateRoomCode();
       
-      // Сохраняем связь пользователь-сокет
       userSockets[user.id] = socket.id;
       
       rooms[code] = {
@@ -239,7 +235,6 @@ io.on('connection', socket => {
         return;
       }
       
-      // Проверяем, не находится ли пользователь уже в комнате
       if (room.players.find(p => p.id === user.id)) {
         socket.emit('room_joined', room);
         return;
@@ -250,7 +245,6 @@ io.on('connection', socket => {
         return;
       }
       
-      // Сохраняем связь пользователь-сокет
       userSockets[user.id] = socket.id;
       
       room.players.push({
@@ -277,22 +271,18 @@ io.on('connection', socket => {
       return;
     }
     
-    // Проверяем, есть ли пользователь в комнате
     const player = room.players.find(p => p.id === user.id);
     if (!player) {
       socket.emit('error_msg', 'Вы не в этой комнате');
       return;
     }
     
-    // Обновляем связь сокета
     userSockets[user.id] = socket.id;
     socket.join(code);
     
     if (room.game) {
-      // Если игра идет, отправляем текущее состояние
       socket.emit('game_update', room.game.getPublicState());
       
-      // Отправляем карты игрока
       const privateState = room.game.getPlayerPrivateState(user.id);
       if (privateState) {
         socket.emit('my_cards', privateState.hand);
@@ -320,7 +310,6 @@ io.on('connection', socket => {
       room.game = new GameState(room.players);
       room.game.startGame();
       
-      // Отправляем карты каждому игроку
       room.players.forEach(player => {
         const privateState = room.game.getPlayerPrivateState(player.id);
         if (privateState && player.chips > 0) {
@@ -330,14 +319,6 @@ io.on('connection', socket => {
           }
         }
       });
-      
-      // Отправляем карты текущему игроку напрямую
-      if (room.game.currentPlayer) {
-        const currentPlayerPrivateState = room.game.getPlayerPrivateState(room.game.currentPlayer.id);
-        if (currentPlayerPrivateState) {
-          socket.emit('my_cards', currentPlayerPrivateState.hand);
-        }
-      }
       
       io.to(code).emit('game_started', {
         publicState: room.game.getPublicState()
@@ -358,7 +339,6 @@ io.on('connection', socket => {
         return;
       }
       
-      // Проверяем, что игрок существует
       const player = room.players.find(p => p.id === playerId);
       if (!player) {
         socket.emit('error_msg', 'Игрок не найден');
@@ -367,13 +347,11 @@ io.on('connection', socket => {
       
       console.log(`🎯 ${player.name} action:`, action);
       
-      // Выполняем действие
       room.game.playerAction(playerId, action);
       
-      // Отправляем обновленное состояние всем
       io.to(code).emit('game_update', room.game.getPublicState());
       
-      // Если игра завершена
+      // ✅ ОБРАБОТКА ЗАВЕРШЕНИЯ РАЗДАЧИ С АВТОПЕРЕЗАПУСКОМ
       if (room.game.finished) {
         const winner = room.game.getWinner();
         
@@ -390,13 +368,14 @@ io.on('connection', socket => {
           }
         });
         
-        // Через 3 секунды начинаем новую раздачу
+        // ✅ ЗДЕСЬ ГЛАВНОЕ: АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК ЧЕРЕЗ 3 СЕКУНДЫ
         setTimeout(() => {
-          startNewHand(room);
-        }, 3000);
+          if (rooms[code]) { // Проверяем что комната все еще существует
+            startNewHand(room);
+          }
+        }, config.NEXT_HAND_DELAY || 3000);
       }
       
-      // После действия, если это был ход текущего игрока, отправляем ему карты
       if (room.game.currentPlayer?.id === playerId) {
         const privateState = room.game.getPlayerPrivateState(playerId);
         if (privateState) {
@@ -441,15 +420,12 @@ io.on('connection', socket => {
     if (room) {
       room.players = room.players.filter(p => p.id !== playerId);
       
-      // Если игра идет, фолдим игрока
       if (room.game && room.game.stage !== 'waiting') {
         try {
           room.game.playerLeave(playerId);
           
-          // Обновляем состояние
           io.to(code).emit('game_update', room.game.getPublicState());
           
-          // Если игра завершена
           if (room.game.finished) {
             const winner = room.game.getWinner();
             
@@ -459,7 +435,6 @@ io.on('connection', socket => {
                 reason: 'player_left'
               });
               
-              // Обновляем фишки игроков
               room.players.forEach(roomPlayer => {
                 const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
                 if (gamePlayer) {
@@ -467,10 +442,13 @@ io.on('connection', socket => {
                 }
               });
               
-              // Начинаем новую раздачу через 3 секунды если есть игроки
+              // ✅ АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК И ДЛЯ ВЫШЕДШИХ ИГРОКОВ
               setTimeout(() => {
-                startNewHand(room);
-              }, 3000);
+                if (rooms[code] && rooms[code].players.length >= 2) {
+                  startNewHand(rooms[code]);
+                }
+              }, config.NEXT_HAND_DELAY || 3000);
+              
             }, 1000);
           }
         } catch (error) {
@@ -493,18 +471,14 @@ io.on('connection', socket => {
         return;
       }
       
-      // Удаляем игрока из комнаты
       room.players = room.players.filter(p => p.id !== playerId);
       
-      // Если игра идет, обрабатываем выход в GameState
       if (room.game && room.game.stage !== 'waiting') {
         try {
           room.game.playerLeave(playerId);
           
-          // Отправляем обновленное состояние
           io.to(code).emit('game_update', room.game.getPublicState());
           
-          // Если игра завершена
           if (room.game.finished) {
             const winner = room.game.getWinner();
             
@@ -514,7 +488,6 @@ io.on('connection', socket => {
                 reason: 'player_left'
               });
               
-              // Обновляем фишки игроков
               room.players.forEach(roomPlayer => {
                 const gamePlayer = room.game.players.find(p => p.id === roomPlayer.id);
                 if (gamePlayer) {
@@ -522,10 +495,13 @@ io.on('connection', socket => {
                 }
               });
               
-              // Начинаем новую раздачу через 3 секунды
+              // ✅ АВТОМАТИЧЕСКИЙ ПЕРЕЗАПУСК
               setTimeout(() => {
-                startNewHand(room);
-              }, 3000);
+                if (rooms[code] && rooms[code].players.length >= 2) {
+                  startNewHand(rooms[code]);
+                }
+              }, config.NEXT_HAND_DELAY || 3000);
+              
             }, 1000);
           }
         } catch (error) {
@@ -533,10 +509,8 @@ io.on('connection', socket => {
         }
       }
       
-      // Уведомляем остальных игроков
       io.to(code).emit('room_update', room);
       
-      // Если комната пустая, удаляем ее
       if (room.players.length === 0) {
         delete rooms[code];
         console.log(`🗑️ Room ${code} deleted (empty)`);
@@ -553,14 +527,12 @@ io.on('connection', socket => {
 
 /* ---------------- CLEANUP ---------------- */
 
-// Очистка неактивных комнат каждые 10 минут
 setInterval(() => {
   const now = new Date();
   for (const [code, room] of Object.entries(rooms)) {
     const age = now - room.createdAt;
     const hours = age / (1000 * 60 * 60);
     
-    // Удаляем комнаты старше 24 часов или пустые
     if (hours > 24 || room.players.length === 0) {
       delete rooms[code];
       console.log(`🧹 Cleaned up room ${code}`);
