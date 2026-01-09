@@ -1,22 +1,7 @@
 class Deck {
   constructor() {
-    this.suits = ['spades', 'hearts', 'diamonds', 'clubs'];
-    this.ranks = [
-      { name: '2', value: 2 },
-      { name: '3', value: 3 },
-      { name: '4', value: 4 },
-      { name: '5', value: 5 },
-      { name: '6', value: 6 },
-      { name: '7', value: 7 },
-      { name: '8', value: 8 },
-      { name: '9', value: 9 },
-      { name: '10', value: 10 },
-      { name: 'J', value: 11 },
-      { name: 'Q', value: 12 },
-      { name: 'K', value: 13 },
-      { name: 'A', value: 14 },
-    ];
-
+    this.suits = ['♠', '♥', '♦', '♣'];
+    this.ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
     this.cards = [];
     this.createDeck();
     this.shuffle();
@@ -26,15 +11,12 @@ class Deck {
     this.cards = [];
     for (const suit of this.suits) {
       for (const rank of this.ranks) {
-        this.cards.push({
-          suit,
-          rank: rank.name,
-          value: rank.value,
-        });
+        this.cards.push({ rank, suit });
       }
     }
   }
 
+  // Алгоритм тасования Фишера-Йетса (используется в Python-боте)
   shuffle() {
     for (let i = this.cards.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -43,7 +25,30 @@ class Deck {
   }
 
   deal() {
+    if (this.cards.length === 0) {
+      throw new Error('Deck is empty');
+    }
     return this.cards.pop();
+  }
+
+  dealMultiple(count) {
+    const dealtCards = [];
+    for (let i = 0; i < count; i++) {
+      if (this.cards.length === 0) break;
+      dealtCards.push(this.deal());
+    }
+    return dealtCards;
+  }
+
+  // Оставшиеся карты в колоде
+  remaining() {
+    return this.cards.length;
+  }
+
+  // Перетасовать заново
+  reshuffle() {
+    this.createDeck();
+    this.shuffle();
   }
 }
 

@@ -1,100 +1,182 @@
 class HandEvaluator {
-  // Основной метод оценки руки
+  // Константы для комбинаций
+  static HAND_RANKS = {
+    HIGH_CARD: 1,
+    PAIR: 2,
+    TWO_PAIR: 3,
+    THREE_OF_A_KIND: 4,
+    STRAIGHT: 5,
+    FLUSH: 6,
+    FULL_HOUSE: 7,
+    FOUR_OF_A_KIND: 8,
+    STRAIGHT_FLUSH: 9,
+    ROYAL_FLUSH: 10
+  };
+
+  static HAND_NAMES = {
+    1: 'High Card',
+    2: 'Pair',
+    3: 'Two Pair',
+    4: 'Three of a Kind',
+    5: 'Straight',
+    6: 'Flush',
+    7: 'Full House',
+    8: 'Four of a Kind',
+    9: 'Straight Flush',
+    10: 'Royal Flush'
+  };
+
+  // Основной метод оценки руки (7 карт: 2 карты игрока + 5 общих)
   static evaluate(cards) {
     if (!cards || cards.length < 5) {
-      return { rank: 0, name: 'Invalid hand', high: 0 };
+      return { rank: 0, name: 'Invalid hand', high: 0, cards: [] };
     }
 
     // Конвертируем карты в числовой формат
-    const numericCards = cards.map(card => this.convertCardToNumeric(card));
+    const numericCards = this.convertCards(cards);
     
-    // Сортируем по значению (от высокого к низкому)
-    numericCards.sort((a, b) => b.value - a.value);
+    // Находим лучшую комбинацию из 5 карт
+    const bestHand = this.findBestHand(numericCards);
     
-    // Получаем все возможные комбинации
-    const handRank = this.getBestHandRank(numericCards);
-    
-    return handRank;
+    return bestHand;
   }
 
-  // Конвертация карты в числовой формат
-  static convertCardToNumeric(card) {
-    let value;
-    const rank = card.rank.toUpperCase();
+  // Конвертация карт в числовой формат
+  static convertCards(cards) {
+    return cards.map(card => {
+      let value;
+      const rank = card.rank.toUpperCase();
+      
+      if (rank === 'A') value = 14;
+      else if (rank === 'K') value = 13;
+      else if (rank === 'Q') value = 12;
+      else if (rank === 'J') value = 11;
+      else if (rank === '10') value = 10;
+      else value = parseInt(rank);
+      
+      // Определяем масть
+      let suit;
+      if (card.suit === '♠' || card.suit === 'spades') suit = 's';
+      else if (card.suit === '♥' || card.suit === 'hearts') suit = 'h';
+      else if (card.suit === '♦' || card.suit === 'diamonds') suit = 'd';
+      else if (card.suit === '♣' || card.suit === 'clubs') suit = 'c';
+      else suit = card.suit; // сохраняем как есть
+      
+      return {
+        original: card,
+        value: value,
+        suit: suit,
+        rank: rank
+      };
+    });
+  }
+
+  // Найти лучшую руку из 7 карт
+  static findBestHand(cards) {
+    // Сортируем по значению (от высокого к низкому)
+    const sortedCards = [...cards].sort((a, b) => b.value - a.value);
     
-    if (rank === 'A') value = 14;
-    else if (rank === 'K') value = 13;
-    else if (rank === 'Q') value = 12;
-    else if (rank === 'J') value = 11;
-    else value = parseInt(rank);
+    // Проверяем все возможные комбинации от самой сильной к слабой
+    const straightFlush = this.checkStraightFlush(sortedCards);
+    if (straightFlush) {
+      const isRoyal = straightFlush[0].value === 14 && straightFlush[4].value === 10;
+      return {
+        rank: isRoyal ? this.HAND_RANKS.ROYAL_FLUSH : this.HAND_RANKS.STRAIGHT_FLUSH,
+        name: isRoyal ? 'Royal Flush' : 'Straight Flush',
+        high: straightFlush[0].value,
+        cards: straightFlush
+      };
+    }
     
-    // Для стрита Ace может быть 1
-    const suit = card.suit;
-    const suitChar = suit === '♠' ? 'spades' :
-                    suit === '♥' ? 'hearts' :
-                    suit === '♦' ? 'diamonds' : 'clubs';
+    const fourOfAKind = this.checkFourOfAKind(sortedCards);
+    if (fourOfAKind) {
+      return {
+        rank: this.HAND_RANKS.FOUR_OF_A_KIND,
+        name: 'Four of a Kind',
+        high: fourOfAKind.value,
+        cards: fourOfAKind.cards
+      };
+    }
     
+    const fullHouse = this.checkFullHouse(sortedCards);
+    if (fullHouse) {
+      return {
+        rank: this.HAND_RANKS.FULL_HOUSE,
+        name: 'Full House',
+        high: fullHouse.threeOfAKind,
+        cards: fullHouse.cards
+      };
+    }
+    
+    const flush = this.checkFlush(sortedCards);
+    if (flush) {
+      return {
+        rank: this.HAND_RANKS.FLUSH,
+        name: 'Flush',
+        high: flush[0].value,
+        cards: flush
+      };
+    }
+    
+    const straight = this.checkStraight(sortedCards);
+    if (straight) {
+      return {
+        rank: this.HAND_RANKS.STRAIGHT,
+        name: 'Straight',
+        high: straight[0].value,
+        cards: straight
+      };
+    }
+    
+    const threeOfAKind = this.checkThreeOfAKind(sortedCards);
+    if (threeOfAKind) {
+      return {
+        rank: this.HAND_RANKS.THREE_OF_A_KIND,
+        name: 'Three of a Kind',
+        high: threeOfAKind.value,
+        cards: threeOfAKind.cards
+      };
+    }
+    
+    const twoPair = this.checkTwoPair(sortedCards);
+    if (twoPair) {
+      return {
+        rank: this.HAND_RANKS.TWO_PAIR,
+        name: 'Two Pair',
+        high: twoPair.highPair,
+        cards: twoPair.cards
+      };
+    }
+    
+    const pair = this.checkPair(sortedCards);
+    if (pair) {
+      return {
+        rank: this.HAND_RANKS.PAIR,
+        name: 'Pair',
+        high: pair.value,
+        cards: pair.cards
+      };
+    }
+    
+    // High Card (5 старших карт)
     return {
-      original: card,
-      value: value,
-      suit: suitChar,
-      rank: rank
+      rank: this.HAND_RANKS.HIGH_CARD,
+      name: 'High Card',
+      high: sortedCards[0].value,
+      cards: sortedCards.slice(0, 5)
     };
   }
 
-  // Получение лучшей комбинации из карт
-  static getBestHandRank(cards) {
-    // Проверяем все комбинации от самой сильной к слабой
-    const royalFlush = this.checkRoyalFlush(cards);
-    if (royalFlush) return { rank: 10, name: 'Royal Flush', high: 14, cards: royalFlush };
-
-    const straightFlush = this.checkStraightFlush(cards);
-    if (straightFlush) return { rank: 9, name: 'Straight Flush', high: straightFlush[0].value, cards: straightFlush };
-
-    const fourOfAKind = this.checkFourOfAKind(cards);
-    if (fourOfAKind) return { rank: 8, name: 'Four of a Kind', high: fourOfAKind.value, cards: fourOfAKind.cards };
-
-    const fullHouse = this.checkFullHouse(cards);
-    if (fullHouse) return { rank: 7, name: 'Full House', high: fullHouse.threeOfAKind, cards: fullHouse.cards };
-
-    const flush = this.checkFlush(cards);
-    if (flush) return { rank: 6, name: 'Flush', high: flush[0].value, cards: flush };
-
-    const straight = this.checkStraight(cards);
-    if (straight) return { rank: 5, name: 'Straight', high: straight[0].value, cards: straight };
-
-    const threeOfAKind = this.checkThreeOfAKind(cards);
-    if (threeOfAKind) return { rank: 4, name: 'Three of a Kind', high: threeOfAKind.value, cards: threeOfAKind.cards };
-
-    const twoPair = this.checkTwoPair(cards);
-    if (twoPair) return { rank: 3, name: 'Two Pair', high: twoPair.highPair, cards: twoPair.cards };
-
-    const pair = this.checkPair(cards);
-    if (pair) return { rank: 2, name: 'Pair', high: pair.value, cards: pair.cards };
-
-    // High card
-    return { rank: 1, name: 'High Card', high: cards[0].value, cards: cards.slice(0, 5) };
-  }
-
-  // Проверка на Royal Flush
-  static checkRoyalFlush(cards) {
-    const straightFlush = this.checkStraightFlush(cards);
-    if (straightFlush && straightFlush[0].value === 14) {
-      return straightFlush;
-    }
-    return null;
-  }
-
-  // Проверка на Straight Flush
+  // Проверка на Straight Flush (и Royal Flush)
   static checkStraightFlush(cards) {
-    // Группируем карты по мастям
+    // Группируем по мастям
     const suits = {};
     cards.forEach(card => {
       if (!suits[card.suit]) suits[card.suit] = [];
       suits[card.suit].push(card);
     });
-
-    // Проверяем каждую масть на стрит
+    
+    // Ищем стрит-флеш в каждой масти
     for (const suit in suits) {
       if (suits[suit].length >= 5) {
         const straight = this.checkStraight(suits[suit]);
@@ -109,12 +191,12 @@ class HandEvaluator {
     const valueCounts = this.countValues(cards);
     
     for (const [value, count] of Object.entries(valueCounts)) {
-      if (count >= 4) {
+      if (count === 4) {
         const fourCards = cards.filter(c => c.value === parseInt(value));
         const kicker = cards.find(c => c.value !== parseInt(value));
         return {
           value: parseInt(value),
-          cards: [...fourCards.slice(0, 4), kicker].filter(c => c)
+          cards: [...fourCards.slice(0, 4), kicker].filter(Boolean)
         };
       }
     }
@@ -124,35 +206,43 @@ class HandEvaluator {
   // Проверка на Full House
   static checkFullHouse(cards) {
     const valueCounts = this.countValues(cards);
-    let threeOfAKindValue = null;
-    let pairValue = null;
-
-    // Ищем сет и пару
+    let threeValue = null;
+    let twoValue = null;
+    
+    // Ищем трипс
     for (const [value, count] of Object.entries(valueCounts)) {
-      if (count >= 3 && !threeOfAKindValue) {
-        threeOfAKindValue = parseInt(value);
-      } else if (count >= 2) {
-        pairValue = Math.max(pairValue || 0, parseInt(value));
+      if (count >= 3 && !threeValue) {
+        threeValue = parseInt(value);
       }
     }
-
-    // Ищем вторую пару если сет уже найден
-    if (threeOfAKindValue) {
+    
+    // Ищем пару (может быть вторая тройка)
+    for (const [value, count] of Object.entries(valueCounts)) {
+      const numValue = parseInt(value);
+      if (count >= 2 && numValue !== threeValue) {
+        twoValue = numValue;
+        break;
+      }
+    }
+    
+    // Если не нашли отдельную пару, но есть вторая тройка
+    if (!twoValue) {
       for (const [value, count] of Object.entries(valueCounts)) {
         const numValue = parseInt(value);
-        if (count >= 2 && numValue !== threeOfAKindValue) {
-          pairValue = Math.max(pairValue || 0, numValue);
+        if (count >= 3 && numValue !== threeValue) {
+          twoValue = numValue;
+          break;
         }
       }
     }
-
-    if (threeOfAKindValue && pairValue) {
-      const threeCards = cards.filter(c => c.value === threeOfAKindValue);
-      const pairCards = cards.filter(c => c.value === pairValue);
+    
+    if (threeValue && twoValue) {
+      const threeCards = cards.filter(c => c.value === threeValue);
+      const twoCards = cards.filter(c => c.value === twoValue);
       return {
-        threeOfAKind: threeOfAKindValue,
-        pair: pairValue,
-        cards: [...threeCards.slice(0, 3), ...pairCards.slice(0, 2)]
+        threeOfAKind: threeValue,
+        pair: twoValue,
+        cards: [...threeCards.slice(0, 3), ...twoCards.slice(0, 2)]
       };
     }
     return null;
@@ -164,7 +254,7 @@ class HandEvaluator {
     cards.forEach(card => {
       suitCounts[card.suit] = (suitCounts[card.suit] || 0) + 1;
     });
-
+    
     for (const [suit, count] of Object.entries(suitCounts)) {
       if (count >= 5) {
         const flushCards = cards
@@ -180,47 +270,43 @@ class HandEvaluator {
   // Проверка на Straight
   static checkStraight(cards) {
     // Убираем дубликаты по значению
+    const uniqueValues = new Set();
     const uniqueCards = [];
-    const seenValues = new Set();
     
     for (const card of cards) {
-      if (!seenValues.has(card.value)) {
-        seenValues.add(card.value);
+      if (!uniqueValues.has(card.value)) {
+        uniqueValues.add(card.value);
         uniqueCards.push(card);
       }
     }
-
+    
     // Сортируем по убыванию
     uniqueCards.sort((a, b) => b.value - a.value);
-
+    
     // Проверяем стрит из 5 карт
     for (let i = 0; i <= uniqueCards.length - 5; i++) {
       if (uniqueCards[i].value - uniqueCards[i + 4].value === 4) {
         return uniqueCards.slice(i, i + 5);
       }
     }
-
+    
     // Проверяем стрит с Ace как 1 (A-2-3-4-5)
     const hasAce = uniqueCards.some(c => c.value === 14);
-    const hasTwo = uniqueCards.some(c => c.value === 2);
-    const hasThree = uniqueCards.some(c => c.value === 3);
-    const hasFour = uniqueCards.some(c => c.value === 4);
     const hasFive = uniqueCards.some(c => c.value === 5);
-
-    if (hasAce && hasTwo && hasThree && hasFour && hasFive) {
-      const straightCards = uniqueCards.filter(c => 
-        c.value === 14 || c.value === 5 || c.value === 4 || c.value === 3 || c.value === 2
-      );
-      // Ace становится 1 для этого стрита
-      const aceCard = straightCards.find(c => c.value === 14);
-      if (aceCard) {
-        aceCard.value = 1;
-        aceCard.straightAceLow = true;
-      }
-      straightCards.sort((a, b) => b.value - a.value);
-      return straightCards.slice(0, 5);
+    const hasFour = uniqueCards.some(c => c.value === 4);
+    const hasThree = uniqueCards.some(c => c.value === 3);
+    const hasTwo = uniqueCards.some(c => c.value === 2);
+    
+    if (hasAce && hasFive && hasFour && hasThree && hasTwo) {
+      const aceCard = uniqueCards.find(c => c.value === 14);
+      const lowStraight = [
+        { ...aceCard, value: 1 }, // Ace как 1
+        ...uniqueCards.filter(c => c.value >= 2 && c.value <= 5)
+      ].sort((a, b) => b.value - a.value).slice(0, 5);
+      
+      return lowStraight;
     }
-
+    
     return null;
   }
 
@@ -229,7 +315,7 @@ class HandEvaluator {
     const valueCounts = this.countValues(cards);
     
     for (const [value, count] of Object.entries(valueCounts)) {
-      if (count >= 3) {
+      if (count === 3) {
         const threeCards = cards.filter(c => c.value === parseInt(value));
         const kickers = cards
           .filter(c => c.value !== parseInt(value))
@@ -270,7 +356,7 @@ class HandEvaluator {
       return {
         highPair: highPair,
         lowPair: lowPair,
-        cards: [...highPairCards, ...lowPairCards, kicker].filter(c => c)
+        cards: [...highPairCards, ...lowPairCards, kicker].filter(Boolean)
       };
     }
     return null;
@@ -281,7 +367,7 @@ class HandEvaluator {
     const valueCounts = this.countValues(cards);
     
     for (const [value, count] of Object.entries(valueCounts)) {
-      if (count >= 2) {
+      if (count === 2) {
         const pairCards = cards.filter(c => c.value === parseInt(value)).slice(0, 2);
         const kickers = cards
           .filter(c => c.value !== parseInt(value))
@@ -305,7 +391,7 @@ class HandEvaluator {
     return counts;
   }
 
-  // Сравнение двух рук для определения победителя
+  // Сравнение двух рук (возвращает 1 если hand1 сильнее, -1 если hand2 сильнее, 0 если равны)
   static compareHands(hand1, hand2) {
     // Сначала сравниваем по рангу комбинации
     if (hand1.rank !== hand2.rank) {
@@ -317,17 +403,22 @@ class HandEvaluator {
       return hand1.high > hand2.high ? 1 : -1;
     }
     
-    // Если все еще равны, сравниваем кикеры
-    const kickers1 = hand1.cards.map(c => c.value).sort((a, b) => b - a);
-    const kickers2 = hand2.cards.map(c => c.value).sort((a, b) => b - a);
+    // Сравниваем кикеры
+    const values1 = hand1.cards.map(c => c.value).sort((a, b) => b - a);
+    const values2 = hand2.cards.map(c => c.value).sort((a, b) => b - a);
     
-    for (let i = 0; i < Math.min(kickers1.length, kickers2.length); i++) {
-      if (kickers1[i] !== kickers2[i]) {
-        return kickers1[i] > kickers2[i] ? 1 : -1;
+    for (let i = 0; i < Math.min(values1.length, values2.length); i++) {
+      if (values1[i] !== values2[i]) {
+        return values1[i] > values2[i] ? 1 : -1;
       }
     }
     
     return 0; // Полное равенство
+  }
+
+  // Вспомогательный метод для отладки
+  static handToString(hand) {
+    return hand.cards.map(c => `${c.rank}${c.original?.suit || c.suit}`).join(' ');
   }
 }
 
