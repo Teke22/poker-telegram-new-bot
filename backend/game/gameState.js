@@ -56,7 +56,7 @@ class GameState {
     this.stage = 'waiting';
     this.dealerIndex = 0;
     this.currentPlayerIndex = 0;
-    this.finished = false;
+    this.finished = false; // ← ВАЖНО: начинаем с false
     this.roundFinished = false;
     this.actionsInCurrentStage = 0; // Счетчик действий в текущей стадии
 
@@ -70,23 +70,34 @@ class GameState {
   }
 
   startGame() {
-    if (this.players.length < 2) return;
+    console.log('🔄 GameState.startGame() called');
+    
+    if (this.players.length < 2) {
+      console.log('❌ Not enough players');
+      this.stage = 'waiting';
+      return false;
+    }
     
     // Фильтруем игроков с фишками
     const playersWithChips = this.players.filter(p => p.chips > 0);
-    if (playersWithChips.length < 2) return;
+    if (playersWithChips.length < 2) {
+      console.log('❌ Not enough players with chips');
+      this.stage = 'waiting';
+      return false;
+    }
     
-    this.deck = shuffle(createDeck());
-    this.communityCards = [];
-    this.stage = 'preflop';
-    this.finished = false;
+    // ⚠️ ВАЖНО: Сбрасываем состояние игры
+    this.finished = false; // ← ЭТО ГЛАВНОЕ ИСПРАВЛЕНИЕ!
     this.roundFinished = false;
     this.actionsInCurrentStage = 0;
     this.allInPlayers = [];
-
     this.pot = 0;
     this.currentBet = 0;
     this.lastAggressorIndex = null;
+    this.communityCards = [];
+    
+    this.deck = shuffle(createDeck());
+    this.stage = 'preflop';
     
     // Сброс состояния игроков
     this.players.forEach(p => {
@@ -137,13 +148,16 @@ class GameState {
       }
       
       this.currentBet = this.bigBlind;
+      
+      console.log(`🎮 Game started successfully. Dealer: ${this.players[this.dealerIndex]?.name}, Stage: ${this.stage}, Current player: ${this.currentPlayer?.name}, Finished: ${this.finished}`);
+      return true;
     } else {
       // Если недостаточно активных игроков, сбрасываем
       this.stage = 'waiting';
-      return;
+      this.finished = true; // Помечаем как завершенную, если не можем начать
+      console.log('❌ Not enough active players to start game');
+      return false;
     }
-    
-    console.log(`🎮 Game started. Dealer: ${this.players[this.dealerIndex]?.name}, Stage: ${this.stage}, Current player: ${this.currentPlayer?.name}`);
   }
 
   postBlind(playerIndex, amount, type) {
@@ -211,23 +225,27 @@ class GameState {
   }
 
   playerAction(playerId, action) {
-    if (this.finished || this.roundFinished) {
+    // ⚠️ ВАЖНО: Проверяем finished в начале
+    if (this.finished) {
+      console.error(`❌ Game is finished! Stage: ${this.stage}, Finished: ${this.finished}`);
       throw new Error('Игра уже завершена');
+    }
+
+    if (this.roundFinished) {
+      console.log('⚠️ Round finished, waiting for next stage');
+      return;
     }
 
     const player = this.currentPlayer;
 
     if (!player) {
+      console.error('❌ No current player!');
       throw new Error('Нет текущего игрока');
     }
 
     if (player.id !== playerId) {
       console.error(`❌ Не ваш ход! Текущий игрок: ${player?.name || 'none'}, ID: ${player?.id || 'none'}`);
       console.error(`   Попытка действия от: ${playerId}`);
-      console.error(`   Все игроки:`);
-      this.players.forEach((p, i) => {
-        console.error(`   ${i}: ${p.name} (${p.id}) - folded:${p.folded}, allIn:${p.allIn}, chips:${p.chips}`);
-      });
       throw new Error('Сейчас не ваш ход');
     }
 
@@ -592,7 +610,7 @@ class GameState {
   }
 
   finishHand() {
-    this.finished = true;
+    this.finished = true; // ← Устанавливаем флаг завершения
     
     const activePlayers = this.players.filter(p => !p.folded);
     
@@ -612,6 +630,7 @@ class GameState {
     // Перемещаем дилера для следующей раздачи
     this.dealerIndex = (this.dealerIndex + 1) % this.players.length;
     console.log(`♻️ Next dealer: ${this.players[this.dealerIndex]?.name}`);
+    console.log(`🏁 Hand finished. Game finished: ${this.finished}`);
   }
 
   determineShowdownWinner() {
