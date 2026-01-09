@@ -1,3 +1,5 @@
+const config = require('../config');
+
 function createDeck() {
   const suits = ['♠', '♥', '♦', '♣'];
   const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
@@ -41,7 +43,7 @@ class GameState {
     this.players = players.map(p => ({
       id: p.id,
       name: p.name,
-      chips: p.chips ?? 1000,
+      chips: p.chips ?? config.START_CHIPS,
       hand: [],
       folded: false,
       allIn: false,
@@ -61,8 +63,8 @@ class GameState {
     // Ставки
     this.pot = 0;
     this.currentBet = 0;
-    this.smallBlind = 10;
-    this.bigBlind = 20;
+    this.smallBlind = config.SMALL_BLIND;
+    this.bigBlind = config.BIG_BLIND;
     this.lastAggressorIndex = null;
     this.allInPlayers = []; // Игроки, которые сделали all-in
   }
@@ -119,9 +121,8 @@ class GameState {
       
       // Текущий игрок после big blind (если есть игроки после BB)
       const nextPlayerIndex = (dealerIndexInActive + 3) % activePlayers.length;
-      const nextPlayer = activePlayers[nextPlayerIndex];
-      
-      if (nextPlayer) {
+      if (nextPlayerIndex < activePlayers.length) {
+        const nextPlayer = activePlayers[nextPlayerIndex];
         const nextPlayerGlobalIndex = this.players.findIndex(p => p.id === nextPlayer.id);
         if (nextPlayerGlobalIndex >= 0) {
           this.currentPlayerIndex = nextPlayerGlobalIndex;
@@ -136,9 +137,13 @@ class GameState {
       }
       
       this.currentBet = this.bigBlind;
+    } else {
+      // Если недостаточно активных игроков, сбрасываем
+      this.stage = 'waiting';
+      return;
     }
     
-    console.log(`🎮 Game started. Dealer: ${this.players[this.dealerIndex]?.name}, Stage: ${this.stage}`);
+    console.log(`🎮 Game started. Dealer: ${this.players[this.dealerIndex]?.name}, Stage: ${this.stage}, Current player: ${this.currentPlayer?.name}`);
   }
 
   postBlind(playerIndex, amount, type) {
@@ -170,49 +175,59 @@ class GameState {
   }
 
   nextPlayer() {
-    const activePlayers = this.players.filter(p => !p.folded);
-    if (activePlayers.length <= 1) {
-      this.currentPlayerIndex = -1;
-      return;
-    }
-    
-    let attempts = 0;
     const startIndex = this.currentPlayerIndex;
+    let attempts = 0;
+    const totalPlayers = this.players.length;
     
     do {
-      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % this.players.length;
+      // Переходим к следующему игроку по кругу
+      this.currentPlayerIndex = (this.currentPlayerIndex + 1) % totalPlayers;
       attempts++;
       
       // Защита от бесконечного цикла
-      if (attempts > this.players.length * 2) {
+      if (attempts > totalPlayers * 2) {
         this.currentPlayerIndex = -1;
+        console.error('❌ Infinite loop in nextPlayer()');
         break;
       }
       
       const player = this.currentPlayer;
-      if (player && !player.folded) {
-        // Если игрок all-in, пропускаем его ход
-        if (player.allIn) {
-          continue;
-        }
-        break;
+      
+      // Если нашли активного игрока, не all-in, выходим
+      if (player && !player.folded && !player.allIn) {
+        console.log(`👤 Next player: ${player.name} (index: ${this.currentPlayerIndex})`);
+        return;
       }
+      
     } while (this.currentPlayerIndex !== startIndex);
     
-    // Если все оставшиеся игроки all-in, завершаем раунд ставок
+    // Если все игроки all-in или folded, завершаем раунд
     const remainingPlayers = this.players.filter(p => !p.folded && !p.allIn);
     if (remainingPlayers.length === 0) {
       this.currentPlayerIndex = -1;
+      console.log('🎲 All remaining players are all-in or folded');
       this.finishBettingRound();
     }
   }
 
   playerAction(playerId, action) {
-    if (this.finished || this.roundFinished) return;
+    if (this.finished || this.roundFinished) {
+      throw new Error('Игра уже завершена');
+    }
 
     const player = this.currentPlayer;
 
-    if (!player || player.id !== playerId) {
+    if (!player) {
+      throw new Error('Нет текущего игрока');
+    }
+
+    if (player.id !== playerId) {
+      console.error(`❌ Не ваш ход! Текущий игрок: ${player?.name || 'none'}, ID: ${player?.id || 'none'}`);
+      console.error(`   Попытка действия от: ${playerId}`);
+      console.error(`   Все игроки:`);
+      this.players.forEach((p, i) => {
+        console.error(`   ${i}: ${p.name} (${p.id}) - folded:${p.folded}, allIn:${p.allIn}, chips:${p.chips}`);
+      });
       throw new Error('Сейчас не ваш ход');
     }
 
@@ -304,7 +319,9 @@ class GameState {
 
     // Обработка рейза
     if (action?.type === 'raise') {
-      const minRaise = this.currentBet > 0 ? this.currentBet * 2 : this.bigBlind * 2;
+      const minRaise = this.currentBet > 0 ? 
+        Math.max(this.currentBet * 2, this.currentBet + this.bigBlind) : 
+        this.bigBlind * 2;
       const raiseTo = action.amount;
       
       if (raiseTo < minRaise) {
@@ -338,6 +355,8 @@ class GameState {
       this.checkBettingRoundCompletion();
       return;
     }
+
+    throw new Error(`Неизвестное действие: ${action}`);
   }
 
   makeBet(player, amount) {
@@ -380,19 +399,22 @@ class GameState {
     
     // Проверяем, дошел ли ход до последнего агрессора
     if (this.lastAggressorIndex !== null) {
-      let currentIndex = this.currentPlayerIndex;
+      // Начинаем с игрока после агрессора
+      let currentIndex = (this.lastAggressorIndex + 1) % this.players.length;
       let attempts = 0;
       
-      // Ищем активного не-all-in игрока, который еще не уравнял
       while (attempts < this.players.length) {
         const player = this.players[currentIndex];
         
-        if (player && !player.folded && !player.allIn && player.bet < this.currentBet) {
-          return false;
+        if (player && !player.folded && !player.allIn) {
+          // Если нашли активного игрока с неравной ставкой
+          if (player.bet < this.currentBet) {
+            return false;
+          }
         }
         
+        // Если вернулись к агрессору - все уравняли
         if (currentIndex === this.lastAggressorIndex) {
-          // Дошел до агрессора, все уравняли
           this.finishBettingRound();
           return true;
         }
@@ -524,6 +546,7 @@ class GameState {
       
       if (player && !player.folded && !player.allIn) {
         this.currentPlayerIndex = index;
+        console.log(`🎯 First player after dealer: ${player.name} (index: ${index})`);
         return;
       }
     }
@@ -584,7 +607,6 @@ class GameState {
       this.determineShowdownWinner();
     } else {
       console.log('🤷 No active players, pot returned');
-      // Возвращаем банк (в покере банк остается на столе для следующей раздачи)
     }
     
     // Перемещаем дилера для следующей раздачи
@@ -691,7 +713,8 @@ class GameState {
         folded: p.folded,
         chips: p.chips,
         bet: p.bet,
-        allIn: p.allIn
+        allIn: p.allIn,
+        hasActed: p.hasActed
       }))
     };
   }
