@@ -1,5 +1,5 @@
+const HandEvaluator = require('./HandEvaluator');
 const Deck = require('./deck');
-const HandEvaluator = require('./handEvaluator');
 
 class GameState {
   constructor(players) {
@@ -8,148 +8,117 @@ class GameState {
       name: p.name,
       chips: p.chips,
       hand: [],
-      folded: false,
-      bet: 0
+      folded: false
     }));
 
     this.deck = new Deck();
-    this.pot = 0;
-    this.currentBet = 0;
-
+    this.communityCards = [];
     this.currentPlayerIndex = 0;
+    this.stage = 'waiting'; // waiting | preflop | finished
     this.finished = false;
-
-    this.stage = 'playing'; // позже: flop / turn / river
+    this.winners = [];
   }
 
-  /* ================= START ================= */
+  /* ================= GAME START ================= */
 
   startGame() {
-    this.deck.shuffle();
+    if (this.players.length < 2) return false;
 
+    this.deck.shuffle();
+    this.communityCards = [];
+    this.finished = false;
+    this.winners = [];
+    this.stage = 'preflop';
+
+    // Раздаём по 2 карты
     this.players.forEach(p => {
       p.hand = [this.deck.draw(), this.deck.draw()];
       p.folded = false;
-      p.bet = 0;
     });
 
     this.currentPlayerIndex = 0;
-    this.currentBet = 0;
-    this.pot = 0;
-    this.finished = false;
-
     return true;
   }
 
-  /* ================= HELPERS ================= */
-
-  get currentPlayer() {
-    return this.players[this.currentPlayerIndex];
-  }
-
-  nextPlayer() {
-    do {
-      this.currentPlayerIndex =
-        (this.currentPlayerIndex + 1) % this.players.length;
-    } while (this.currentPlayer.folded);
-
-    // если все кроме одного сфолдили
-    const active = this.players.filter(p => !p.folded);
-    if (active.length === 1) {
-      active[0].chips += this.pot;
-      this.finished = true;
-    }
-  }
-
-  allBetsEqual() {
-    const active = this.players.filter(p => !p.folded);
-    return active.every(p => p.bet === this.currentBet);
-  }
-
-  /* ================= ACTIONS ================= */
+  /* ================= PLAYER ACTION ================= */
 
   playerAction(playerId, action) {
     if (this.finished) return;
 
-    const player = this.currentPlayer;
-    if (player.id !== playerId) {
+    const player = this.players[this.currentPlayerIndex];
+    if (!player || player.id !== playerId) {
       throw new Error('Not your turn');
     }
 
-    switch (action.type) {
-      case 'fold':
-        player.folded = true;
-        break;
-
-      case 'check':
-        if (this.currentBet > 0) {
-          throw new Error('Cannot check, bet exists');
-        }
-        break;
-
-      case 'bet': {
-        const amount = Number(action.amount);
-        if (amount <= 0) throw new Error('Invalid bet');
-        if (player.chips < amount) throw new Error('Not enough chips');
-
-        player.chips -= amount;
-        player.bet += amount;
-        this.currentBet = amount;
-        this.pot += amount;
-        break;
-      }
-
-      case 'call': {
-        const toCall = this.currentBet - player.bet;
-        if (toCall <= 0) throw new Error('Nothing to call');
-        if (player.chips < toCall) throw new Error('Not enough chips');
-
-        player.chips -= toCall;
-        player.bet += toCall;
-        this.pot += toCall;
-        break;
-      }
-
-      default:
-        throw new Error('Unknown action');
+    if (action.type === 'fold') {
+      player.folded = true;
     }
 
-    // если все уравняли — временно завершаем раздачу
-    if (this.allBetsEqual()) {
+    if (action.type === 'check') {
+      // ничего не делаем, просто ход дальше
+    }
+
+    this.advanceTurn();
+  }
+
+  advanceTurn() {
+    const activePlayers = this.players.filter(p => !p.folded);
+
+    // Если остался один — он победил
+    if (activePlayers.length === 1) {
       this.finished = true;
+      this.winners = activePlayers;
       return;
     }
 
-    this.nextPlayer();
+    let nextIndex = this.currentPlayerIndex;
+    do {
+      nextIndex = (nextIndex + 1) % this.players.length;
+    } while (this.players[nextIndex].folded);
+
+    this.currentPlayerIndex = nextIndex;
   }
 
   /* ================= STATE ================= */
 
   getPublicState() {
     return {
-      pot: this.pot,
-      currentBet: this.currentBet,
-      currentPlayerId: this.currentPlayer.id,
+      stage: this.stage,
+      communityCards: this.communityCards,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
-        folded: p.folded,
-        bet: p.bet
-      }))
+        folded: p.folded
+      })),
+      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
+      finished: this.finished,
+      winners: this.winners.map(w => w.id)
     };
   }
 
   getPlayerPrivateState(playerId) {
-    const p = this.players.find(p => p.id === playerId);
-    if (!p) return null;
-    return { hand: p.hand };
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) return null;
+
+    return {
+      hand: player.hand
+    };
   }
 
+  /* ================= LEAVE ================= */
+
   playerLeave(playerId) {
-    const p = this.players.find(p => p.id === playerId);
+    const p = this.players.find(x => x.id === playerId);
     if (p) p.folded = true;
+
+    const alive = this.players.filter(x => !x.folded);
+    if (alive.length <= 1) {
+      this.finished = true;
+      this.winners = alive;
+    }
   }
 }
 
-module.exports = GameState;
+/* 🔴 КРИТИЧЕСКИ ВАЖНО */
+module.exports = { GameState };
