@@ -10,15 +10,14 @@ class GameState {
       bet: 0,
       folded: false,
       allIn: false,
-      acted: false,
-      showHand: false // 👈 ВАЖНО
+      acted: false
     }));
 
     this.deck = [];
     this.communityCards = [];
     this.pot = 0;
 
-    this.stage = 'preflop';
+    this.stage = 'preflop'; // preflop | flop | turn | river | showdown
     this.currentBet = 0;
 
     this.dealerIndex = 0;
@@ -49,7 +48,6 @@ class GameState {
       p.folded = false;
       p.allIn = false;
       p.acted = false;
-      p.showHand = false;
     });
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
@@ -104,6 +102,7 @@ class GameState {
         if (amount <= this.currentBet) {
           throw new Error('Bet too small');
         }
+
         const diff = amount - player.bet;
         if (diff > player.chips) {
           throw new Error('Not enough chips');
@@ -113,6 +112,7 @@ class GameState {
         player.bet = amount;
         this.pot += diff;
         this.currentBet = amount;
+
         if (player.chips === 0) player.allIn = true;
 
         this.players.forEach(p => {
@@ -158,6 +158,7 @@ class GameState {
       p.bet = 0;
       p.acted = false;
     });
+
     this.currentBet = 0;
 
     if (this.stage === 'preflop') {
@@ -171,13 +172,14 @@ class GameState {
       this.communityCards.push(this.deck.pop());
     } else if (this.stage === 'river') {
       this.stage = 'showdown';
-      this._revealHands(); // 👈 ВАЖНО
-      this.finished = true;
+      this._finishByShowdown();
       return;
     }
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
   }
+
+  /* ================= FINISH ================= */
 
   _finishByFold() {
     const winner = this.players.find(p => !p.folded);
@@ -185,15 +187,23 @@ class GameState {
       winner.chips += this.pot;
       this.winners = [winner];
     }
+    this.stage = 'showdown';
     this.finished = true;
   }
 
-  _revealHands() {
-    this.players.forEach(p => {
-      if (!p.folded) {
-        p.showHand = true;
-      }
-    });
+  _finishByShowdown() {
+    const alive = this.players.filter(p => !p.folded);
+
+    // ⚠️ ПОКА: простой победитель (первый живой)
+    // позже заменим на HandEvaluator
+    const winner = alive[0];
+
+    if (winner) {
+      winner.chips += this.pot;
+      this.winners = [winner];
+    }
+
+    this.finished = true;
   }
 
   /* ================= HELPERS ================= */
@@ -236,7 +246,9 @@ class GameState {
       pot: this.pot,
       communityCards: this.communityCards,
       currentBet: this.currentBet,
-      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
+      currentPlayerId: this.finished ? null : this.players[this.currentPlayerIndex]?.id,
+      finished: this.finished,
+      winners: this.winners.map(w => ({ id: w.id, name: w.name })),
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -244,9 +256,8 @@ class GameState {
         bet: p.bet,
         folded: p.folded,
         allIn: p.allIn,
-        hand: p.showHand ? p.hand : null // 👈 ВОТ ОНО
-      })),
-      finished: this.finished
+        hand: this.stage === 'showdown' ? p.hand : null
+      }))
     };
   }
 
