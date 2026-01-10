@@ -6,162 +6,198 @@ class GameState {
     this.players = players.map(p => ({
       id: p.id,
       name: p.name,
-      chips: p.chips ?? 1000,
+      chips: p.chips,
       hand: [],
       folded: false,
+      bet: 0,
       isBot: p.isBot || false
     }));
 
-    this.stage = 'waiting'; // waiting | preflop | flop | turn | river | showdown | finished
     this.deck = new Deck();
     this.communityCards = [];
     this.pot = 0;
+
+    this.stage = 'waiting'; // waiting | preflop | flop | turn | river | showdown
     this.currentPlayerIndex = 0;
+    this.currentBet = 0;
     this.finished = false;
-    this.winners = [];
   }
 
-  /* =========================
-     GAME FLOW
-  ========================= */
+  /* ---------------- START GAME ---------------- */
 
   startGame() {
     if (this.players.length < 2) return false;
 
-    this.stage = 'preflop';
-    this.finished = false;
     this.deck.shuffle();
+    this.communityCards = [];
+    this.pot = 0;
+    this.currentBet = 0;
+    this.finished = false;
 
-    // reset players
     this.players.forEach(p => {
       p.hand = [];
       p.folded = false;
+      p.bet = 0;
     });
 
-    // deal 2 cards to each
-    for (let i = 0; i < 2; i++) {
-      this.players.forEach(player => {
-        player.hand.push(this.deck.draw());
-      });
-    }
+    // Раздаём по 2 карты
+    this.players.forEach(player => {
+      player.hand.push(this.deck.drawCard());
+      player.hand.push(this.deck.drawCard());
+    });
+
+    this.stage = 'preflop';
+    this.currentPlayerIndex = 0;
 
     return true;
   }
 
-  nextStage() {
-    if (this.stage === 'preflop') {
-      this.stage = 'flop';
-      this.communityCards.push(
-        this.deck.draw(),
-        this.deck.draw(),
-        this.deck.draw()
-      );
-    } else if (this.stage === 'flop') {
-      this.stage = 'turn';
-      this.communityCards.push(this.deck.draw());
-    } else if (this.stage === 'turn') {
-      this.stage = 'river';
-      this.communityCards.push(this.deck.draw());
-    } else if (this.stage === 'river') {
-      this.stage = 'showdown';
-      this.resolveShowdown();
-    }
-  }
-
-  /* =========================
-     PLAYER ACTIONS
-  ========================= */
+  /* ---------------- PLAYER ACTION ---------------- */
 
   playerAction(playerId, action) {
+    if (this.finished) return;
+
     const player = this.players.find(p => p.id === playerId);
-    if (!player || player.folded || this.finished) return;
+    if (!player || player.folded) return;
 
-    if (action.type === 'fold') {
-      player.folded = true;
+    switch (action.type) {
+      case 'fold':
+        player.folded = true;
+        break;
+
+      case 'check':
+        if (player.bet !== this.currentBet) {
+          throw new Error('Нельзя чекать');
+        }
+        break;
+
+      case 'call': {
+        const diff = this.currentBet - player.bet;
+        if (diff > player.chips) throw new Error('Недостаточно фишек');
+        player.chips -= diff;
+        player.bet += diff;
+        this.pot += diff;
+        break;
+      }
+
+      case 'bet':
+      case 'raise': {
+        const amount = action.amount;
+        if (amount <= this.currentBet) throw new Error('Ставка слишком маленькая');
+        const diff = amount - player.bet;
+        if (diff > player.chips) throw new Error('Недостаточно фишек');
+
+        player.chips -= diff;
+        player.bet += diff;
+        this.pot += diff;
+        this.currentBet = amount;
+        break;
+      }
+
+      default:
+        throw new Error('Неизвестное действие');
     }
 
-    if (action.type === 'check') {
-      // nothing yet
-    }
+    this.nextPlayer();
+  }
 
-    // если остался один игрок — он победил
-    const activePlayers = this.players.filter(p => !p.folded);
-    if (activePlayers.length === 1) {
-      this.winners = [activePlayers[0]];
-      this.finished = true;
-      this.stage = 'finished';
+  /* ---------------- TURN LOGIC ---------------- */
+
+  nextPlayer() {
+    if (this.isBettingRoundComplete()) {
+      this.nextStage();
       return;
     }
 
-    this.nextStage();
+    do {
+      this.currentPlayerIndex =
+        (this.currentPlayerIndex + 1) % this.players.length;
+    } while (this.players[this.currentPlayerIndex].folded);
   }
 
-  playerLeave(playerId) {
-    const player = this.players.find(p => p.id === playerId);
-    if (!player) return;
-
-    player.folded = true;
-
+  isBettingRoundComplete() {
     const activePlayers = this.players.filter(p => !p.folded);
-    if (activePlayers.length === 1) {
-      this.winners = [activePlayers[0]];
-      this.finished = true;
-      this.stage = 'finished';
+    return activePlayers.every(p => p.bet === this.currentBet);
+  }
+
+  /* ---------------- STAGES ---------------- */
+
+  nextStage() {
+    this.players.forEach(p => (p.bet = 0));
+    this.currentBet = 0;
+
+    if (this.stage === 'preflop') {
+      this.communityCards.push(
+        this.deck.drawCard(),
+        this.deck.drawCard(),
+        this.deck.drawCard()
+      );
+      this.stage = 'flop';
+    } else if (this.stage === 'flop') {
+      this.communityCards.push(this.deck.drawCard());
+      this.stage = 'turn';
+    } else if (this.stage === 'turn') {
+      this.communityCards.push(this.deck.drawCard());
+      this.stage = 'river';
+    } else if (this.stage === 'river') {
+      this.stage = 'showdown';
+      this.finishGame();
+      return;
     }
+
+    this.currentPlayerIndex = 0;
   }
 
-  /* =========================
-     SHOWDOWN
-  ========================= */
+  /* ---------------- SHOWDOWN ---------------- */
 
-  resolveShowdown() {
+  finishGame() {
     const activePlayers = this.players.filter(p => !p.folded);
 
-    let bestHand = null;
-    let winners = [];
+    if (activePlayers.length === 1) {
+      activePlayers[0].chips += this.pot;
+      this.finished = true;
+      return;
+    }
 
-    activePlayers.forEach(player => {
-      const cards = [...player.hand, ...this.communityCards];
-      const hand = HandEvaluator.evaluate(cards);
-
-      if (!bestHand) {
-        bestHand = hand;
-        winners = [player];
-      } else {
-        const cmp = HandEvaluator.compareHands(hand, bestHand);
-        if (cmp > 0) {
-          bestHand = hand;
-          winners = [player];
-        } else if (cmp === 0) {
-          winners.push(player);
-        }
-      }
+    const results = activePlayers.map(player => {
+      const hand = HandEvaluator.evaluate([
+        ...player.hand,
+        ...this.communityCards
+      ]);
+      return { player, hand };
     });
 
-    this.winners = winners;
+    results.sort((a, b) =>
+      HandEvaluator.compareHands(b.hand, a.hand)
+    );
+
+    const bestHand = results[0].hand;
+    const winners = results.filter(
+      r => HandEvaluator.compareHands(r.hand, bestHand) === 0
+    );
+
+    const winAmount = Math.floor(this.pot / winners.length);
+    winners.forEach(w => {
+      w.player.chips += winAmount;
+    });
+
     this.finished = true;
-    this.stage = 'finished';
   }
 
-  /* =========================
-     STATES
-  ========================= */
+  /* ---------------- STATE HELPERS ---------------- */
 
   getPublicState() {
     return {
       stage: this.stage,
       pot: this.pot,
       communityCards: this.communityCards,
+      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
-        folded: p.folded,
-        hasCards: p.hand.length > 0
-      })),
-      winners: this.winners.map(w => ({
-        id: w.id,
-        name: w.name
+        bet: p.bet,
+        folded: p.folded
       }))
     };
   }
@@ -169,10 +205,12 @@ class GameState {
   getPlayerPrivateState(playerId) {
     const player = this.players.find(p => p.id === playerId);
     if (!player) return null;
+    return { hand: player.hand };
+  }
 
-    return {
-      hand: player.hand
-    };
+  playerLeave(playerId) {
+    const player = this.players.find(p => p.id === playerId);
+    if (player) player.folded = true;
   }
 }
 
