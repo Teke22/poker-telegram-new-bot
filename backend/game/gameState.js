@@ -1,217 +1,148 @@
-const Deck = require('./deck');
-const HandEvaluator = require('./handEvaluator');
+// backend/game/gameState.js
+const HandEvaluator = require("./HandEvaluator");
 
 class GameState {
-  constructor(players) {
-    this.players = players.map(p => ({
-      id: p.id,
-      name: p.name,
-      chips: p.chips,
-      hand: [],
-      folded: false,
-      bet: 0,
-      isBot: p.isBot || false
-    }));
+  constructor(roomId, players, DeckClass) {
+    this.roomId = roomId;
+    this.players = players; // [{ id, socketId }]
+    this.DeckClass = DeckClass;
 
-    this.deck = new Deck();
+    this.deck = null;
     this.communityCards = [];
-    this.pot = 0;
-
-    this.stage = 'waiting'; // waiting | preflop | flop | turn | river | showdown
-    this.currentPlayerIndex = 0;
-    this.currentBet = 0;
-    this.finished = false;
+    this.stage = "waiting"; // waiting | preflop | flop | turn | river | showdown
+    this.hands = new Map(); // playerId -> cards[]
   }
 
-  /* ---------------- START GAME ---------------- */
-
+  // ========================
+  // START HAND
+  // ========================
   startGame() {
-    if (this.players.length < 2) return false;
+    console.log(`🔄 Starting new hand in ${this.roomId}`);
 
-    this.deck.shuffle();
+    // создаём новую колоду
+    this.deck = new this.DeckClass();
+
+    // активные карты колоды
+    let activeCards = [...this.deck.deck];
+
+    // очищаем состояние
     this.communityCards = [];
-    this.pot = 0;
-    this.currentBet = 0;
-    this.finished = false;
+    this.hands.clear();
 
-    this.players.forEach(p => {
-      p.hand = [];
-      p.folded = false;
-      p.bet = 0;
-    });
-
-    // Раздаём по 2 карты
+    // === раздаём по 2 карты каждому игроку ===
     this.players.forEach(player => {
-      player.hand.push(this.deck.drawCard());
-      player.hand.push(this.deck.drawCard());
+      const dealt = this.deck.dealCards(activeCards, 2);
+      activeCards = dealt[0];
+
+      this.hands.set(player.id, dealt[1]);
     });
 
-    this.stage = 'preflop';
-    this.currentPlayerIndex = 0;
-
-    return true;
+    this.deck.deck = activeCards;
+    this.stage = "preflop";
   }
 
-  /* ---------------- PLAYER ACTION ---------------- */
+  // ========================
+  // COMMUNITY CARDS
+  // ========================
+  dealFlop() {
+    if (this.stage !== "preflop") return;
 
-  playerAction(playerId, action) {
-    if (this.finished) return;
+    let dealt = this.deck.dealCards(this.deck.deck, 3);
+    this.deck.deck = dealt[0];
+    this.communityCards.push(...dealt[1]);
 
-    const player = this.players.find(p => p.id === playerId);
-    if (!player || player.folded) return;
-
-    switch (action.type) {
-      case 'fold':
-        player.folded = true;
-        break;
-
-      case 'check':
-        if (player.bet !== this.currentBet) {
-          throw new Error('Нельзя чекать');
-        }
-        break;
-
-      case 'call': {
-        const diff = this.currentBet - player.bet;
-        if (diff > player.chips) throw new Error('Недостаточно фишек');
-        player.chips -= diff;
-        player.bet += diff;
-        this.pot += diff;
-        break;
-      }
-
-      case 'bet':
-      case 'raise': {
-        const amount = action.amount;
-        if (amount <= this.currentBet) throw new Error('Ставка слишком маленькая');
-        const diff = amount - player.bet;
-        if (diff > player.chips) throw new Error('Недостаточно фишек');
-
-        player.chips -= diff;
-        player.bet += diff;
-        this.pot += diff;
-        this.currentBet = amount;
-        break;
-      }
-
-      default:
-        throw new Error('Неизвестное действие');
-    }
-
-    this.nextPlayer();
+    this.stage = "flop";
   }
 
-  /* ---------------- TURN LOGIC ---------------- */
+  dealTurn() {
+    if (this.stage !== "flop") return;
 
-  nextPlayer() {
-    if (this.isBettingRoundComplete()) {
-      this.nextStage();
-      return;
-    }
+    let dealt = this.deck.dealCards(this.deck.deck, 1);
+    this.deck.deck = dealt[0];
+    this.communityCards.push(dealt[1][0]);
 
-    do {
-      this.currentPlayerIndex =
-        (this.currentPlayerIndex + 1) % this.players.length;
-    } while (this.players[this.currentPlayerIndex].folded);
+    this.stage = "turn";
   }
 
-  isBettingRoundComplete() {
-    const activePlayers = this.players.filter(p => !p.folded);
-    return activePlayers.every(p => p.bet === this.currentBet);
+  dealRiver() {
+    if (this.stage !== "turn") return;
+
+    let dealt = this.deck.dealCards(this.deck.deck, 1);
+    this.deck.deck = dealt[0];
+    this.communityCards.push(dealt[1][0]);
+
+    this.stage = "river";
   }
 
-  /* ---------------- STAGES ---------------- */
+  // ========================
+  // SHOWDOWN
+  // ========================
+  showdown() {
+    if (this.stage !== "river") return;
 
-  nextStage() {
-    this.players.forEach(p => (p.bet = 0));
-    this.currentBet = 0;
+    const results = [];
 
-    if (this.stage === 'preflop') {
-      this.communityCards.push(
-        this.deck.drawCard(),
-        this.deck.drawCard(),
-        this.deck.drawCard()
+    for (const player of this.players) {
+      const hand = this.hands.get(player.id);
+
+      const allCards = [...hand, ...this.communityCards];
+
+      const evaluated = HandEvaluator.evaluate(
+        allCards.map(c => this.normalizeCard(c))
       );
-      this.stage = 'flop';
-    } else if (this.stage === 'flop') {
-      this.communityCards.push(this.deck.drawCard());
-      this.stage = 'turn';
-    } else if (this.stage === 'turn') {
-      this.communityCards.push(this.deck.drawCard());
-      this.stage = 'river';
-    } else if (this.stage === 'river') {
-      this.stage = 'showdown';
-      this.finishGame();
-      return;
+
+      results.push({
+        playerId: player.id,
+        hand,
+        result: evaluated
+      });
     }
 
-    this.currentPlayerIndex = 0;
+    this.stage = "showdown";
+    return results;
   }
 
-  /* ---------------- SHOWDOWN ---------------- */
+  // ========================
+  // CARD NORMALIZER
+  // ========================
+  normalizeCard(card) {
+    // card: "AH", "10S", "7D"
+    const rank = card.slice(0, card.length - 1);
+    const suitChar = card[card.length - 1];
 
-  finishGame() {
-    const activePlayers = this.players.filter(p => !p.folded);
+    const suitMap = {
+      H: "hearts",
+      D: "diamonds",
+      C: "clubs",
+      S: "spades"
+    };
 
-    if (activePlayers.length === 1) {
-      activePlayers[0].chips += this.pot;
-      this.finished = true;
-      return;
-    }
-
-    const results = activePlayers.map(player => {
-      const hand = HandEvaluator.evaluate([
-        ...player.hand,
-        ...this.communityCards
-      ]);
-      return { player, hand };
-    });
-
-    results.sort((a, b) =>
-      HandEvaluator.compareHands(b.hand, a.hand)
-    );
-
-    const bestHand = results[0].hand;
-    const winners = results.filter(
-      r => HandEvaluator.compareHands(r.hand, bestHand) === 0
-    );
-
-    const winAmount = Math.floor(this.pot / winners.length);
-    winners.forEach(w => {
-      w.player.chips += winAmount;
-    });
-
-    this.finished = true;
+    return {
+      rank,
+      suit: suitMap[suitChar]
+    };
   }
 
-  /* ---------------- STATE HELPERS ---------------- */
-
+  // ========================
+  // STATE FOR CLIENT
+  // ========================
   getPublicState() {
     return {
       stage: this.stage,
-      pot: this.pot,
       communityCards: this.communityCards,
-      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       players: this.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        chips: p.chips,
-        bet: p.bet,
-        folded: p.folded
+        id: p.id
       }))
     };
   }
 
-  getPlayerPrivateState(playerId) {
-    const player = this.players.find(p => p.id === playerId);
-    if (!player) return null;
-    return { hand: player.hand };
-  }
-
-  playerLeave(playerId) {
-    const player = this.players.find(p => p.id === playerId);
-    if (player) player.folded = true;
+  getPrivateState(playerId) {
+    return {
+      hand: this.hands.get(playerId) || [],
+      communityCards: this.communityCards,
+      stage: this.stage
+    };
   }
 }
 
-module.exports = { GameState };
+module.exports = GameState;
