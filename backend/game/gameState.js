@@ -17,7 +17,7 @@ class GameState {
     this.communityCards = [];
     this.pot = 0;
 
-    this.stage = 'preflop'; // preflop | flop | turn | river | showdown
+    this.stage = 'preflop';
     this.currentBet = 0;
 
     this.dealerIndex = 0;
@@ -102,6 +102,7 @@ class GameState {
         if (amount <= this.currentBet) {
           throw new Error('Bet too small');
         }
+
         const diff = amount - player.bet;
         if (diff > player.chips) {
           throw new Error('Not enough chips');
@@ -114,7 +115,6 @@ class GameState {
 
         if (player.chips === 0) player.allIn = true;
 
-        // сброс acted у всех остальных
         this.players.forEach(p => {
           if (!p.folded && !p.allIn) p.acted = false;
         });
@@ -202,10 +202,7 @@ class GameState {
     let i = from;
     do {
       i = (i + 1) % this.players.length;
-    } while (
-      this.players[i].folded ||
-      this.players[i].allIn
-    );
+    } while (this.players[i].folded || this.players[i].allIn);
     return i;
   }
 
@@ -237,7 +234,6 @@ class GameState {
       currentBet: this.currentBet,
       currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       finished: this.finished,
-
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -245,12 +241,8 @@ class GameState {
         bet: p.bet,
         folded: p.folded,
         allIn: p.allIn,
-
-        // 🔥 КЛЮЧЕВОЕ МЕСТО
-        hand:
-          this.stage === 'showdown' && !p.folded
-            ? p.hand
-            : null
+        // 👇 КАРТЫ ТОЛЬКО НА ШОУДАУНЕ
+        hand: this.stage === 'showdown' ? p.hand : null
       }))
     };
   }

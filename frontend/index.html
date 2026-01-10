@@ -25,6 +25,11 @@ button {
   border-radius:6px;
   display:inline-block;
 }
+.box {
+  border:1px solid #1a6b52;
+  padding:10px;
+  margin-top:10px;
+}
 </style>
 </head>
 
@@ -73,23 +78,35 @@ function renderGame(state) {
 
   document.getElementById('app').innerHTML = `
     <h2>Игра</h2>
-    <p>Стадия: ${state.stage}</p>
+    <p>Стадия: <b>${state.stage}</b></p>
     <p>Банк: ${state.pot}</p>
 
-    <h3>Карты стола</h3>
-    ${state.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
+    <div class="box">
+      <h3>Карты стола</h3>
+      ${state.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
+    </div>
 
-    <h3>Ваши карты</h3>
-    ${myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
+    <div class="box">
+      <h3>Ваши карты</h3>
+      ${myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
+    </div>
 
-    <h3>Игроки</h3>
-    <ul>
-      ${state.players.map(p =>
-        `<li>${p.name} ${p.id === state.currentPlayerId ? '⬅ ход' : ''}</li>`
-      ).join('')}
-    </ul>
+    <div class="box">
+      <h3>Игроки</h3>
+      ${state.players.map(p => `
+        <div>
+          <b>${p.name}</b>
+          ${p.folded ? '❌ fold' : ''}
+          ${state.stage === 'showdown' && p.hand ? `
+            <div>
+              ${p.hand.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `).join('')}
+    </div>
 
-    ${state.currentPlayerId === me.id ? `
+    ${!state.finished && state.currentPlayerId === me.id ? `
       <button onclick="check()">Чек</button>
       <button onclick="call()">Колл</button>
       <button onclick="fold()">Фолд</button>
@@ -102,18 +119,15 @@ function renderGame(state) {
 function createRoom() {
   socket.emit('create_room', { user: me });
 }
-
 function joinRoom() {
   const code = document.getElementById('code').value.trim();
   socket.emit('join_room', { code, user: me });
 }
-
 function leaveRoom() {
   socket.emit('leave_room', { code: room.code, playerId: me.id });
   room = null;
   renderLobby();
 }
-
 function startGame() {
   socket.emit('start_game', { code: room.code });
 }
@@ -128,32 +142,17 @@ function fold() {
   socket.emit('player_action', { code: room.code, playerId: me.id, action: 'fold' });
 }
 
-/* ---------- SOCKET EVENTS ---------- */
+/* ---------- SOCKET ---------- */
 
-socket.on('room_joined', r => {
-  room = r;
-  renderRoom();
-});
-
-socket.on('room_update', r => {
-  room = r;
-  if (!lastState) renderRoom();
-});
+socket.on('room_joined', r => { room = r; renderRoom(); });
+socket.on('room_update', r => { room = r; if (!lastState) renderRoom(); });
 
 socket.on('game_started', ({ publicState }) => {
   socket.emit('get_my_cards', { code: room.code, playerId: me.id });
   renderGame(publicState);
 });
-
-socket.on('game_update', state => {
-  renderGame(state);
-});
-
-socket.on('my_cards', cards => {
-  myCards = cards;
-  if (lastState) renderGame(lastState);
-});
-
+socket.on('game_update', state => renderGame(state));
+socket.on('my_cards', cards => { myCards = cards; if (lastState) renderGame(lastState); });
 socket.on('error_msg', msg => alert(msg));
 
 renderLobby();
