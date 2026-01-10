@@ -10,7 +10,8 @@ class GameState {
       bet: 0,
       folded: false,
       allIn: false,
-      acted: false
+      acted: false,
+      showHand: false // 👈 ВАЖНО
     }));
 
     this.deck = [];
@@ -24,7 +25,6 @@ class GameState {
     this.currentPlayerIndex = 0;
 
     this.finished = false;
-    this.showdown = false;
     this.winners = [];
   }
 
@@ -41,7 +41,6 @@ class GameState {
     this.currentBet = 0;
     this.stage = 'preflop';
     this.finished = false;
-    this.showdown = false;
     this.winners = [];
 
     this.players.forEach(p => {
@@ -50,6 +49,7 @@ class GameState {
       p.folded = false;
       p.allIn = false;
       p.acted = false;
+      p.showHand = false;
     });
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
@@ -162,11 +162,7 @@ class GameState {
 
     if (this.stage === 'preflop') {
       this.stage = 'flop';
-      this.communityCards.push(
-        this.deck.pop(),
-        this.deck.pop(),
-        this.deck.pop()
-      );
+      this.communityCards.push(this.deck.pop(), this.deck.pop(), this.deck.pop());
     } else if (this.stage === 'flop') {
       this.stage = 'turn';
       this.communityCards.push(this.deck.pop());
@@ -174,7 +170,9 @@ class GameState {
       this.stage = 'river';
       this.communityCards.push(this.deck.pop());
     } else if (this.stage === 'river') {
-      this._finishByShowdown();
+      this.stage = 'showdown';
+      this._revealHands(); // 👈 ВАЖНО
+      this.finished = true;
       return;
     }
 
@@ -190,20 +188,12 @@ class GameState {
     this.finished = true;
   }
 
-  _finishByShowdown() {
-    this.stage = 'showdown';
-    this.showdown = true;
-
-    // ⛔ временно: просто первый не сфолдивший
-    const alive = this.players.filter(p => !p.folded);
-    const winner = alive[0];
-
-    if (winner) {
-      winner.chips += this.pot;
-      this.winners = [winner];
-    }
-
-    this.finished = true;
+  _revealHands() {
+    this.players.forEach(p => {
+      if (!p.folded) {
+        p.showHand = true;
+      }
+    });
   }
 
   /* ================= HELPERS ================= */
@@ -216,10 +206,7 @@ class GameState {
     let i = from;
     do {
       i = (i + 1) % this.players.length;
-    } while (
-      this.players[i].folded ||
-      this.players[i].allIn
-    );
+    } while (this.players[i].folded || this.players[i].allIn);
     return i;
   }
 
@@ -257,10 +244,9 @@ class GameState {
         bet: p.bet,
         folded: p.folded,
         allIn: p.allIn,
-        hand: this.showdown ? p.hand : undefined
+        hand: p.showHand ? p.hand : null // 👈 ВОТ ОНО
       })),
-      finished: this.finished,
-      showdown: this.showdown
+      finished: this.finished
     };
   }
 
