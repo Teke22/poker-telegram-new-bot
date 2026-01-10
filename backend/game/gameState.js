@@ -11,7 +11,8 @@ class GameState {
       bet: 0,
       folded: false,
       allIn: false,
-      acted: false
+      acted: false,
+      lastHand: null
     }));
 
     this.deck = [];
@@ -26,6 +27,7 @@ class GameState {
 
     this.finished = false;
     this.winners = [];
+    this.winningHandName = null;
   }
 
   /* ================= INIT ================= */
@@ -42,6 +44,7 @@ class GameState {
     this.stage = 'preflop';
     this.finished = false;
     this.winners = [];
+    this.winningHandName = null;
 
     this.players.forEach(p => {
       p.hand = [this.deck.pop(), this.deck.pop()];
@@ -49,6 +52,7 @@ class GameState {
       p.folded = false;
       p.allIn = false;
       p.acted = false;
+      p.lastHand = null;
     });
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
@@ -65,13 +69,7 @@ class GameState {
       throw new Error('Not your turn');
     }
 
-    if (player.folded || player.allIn) {
-      throw new Error('Player cannot act');
-    }
-
-    if (typeof action === 'string') {
-      action = { type: action };
-    }
+    if (typeof action === 'string') action = { type: action };
 
     switch (action.type) {
       case 'fold':
@@ -97,33 +95,6 @@ class GameState {
         break;
       }
 
-      case 'bet':
-      case 'raise': {
-        const amount = action.amount;
-        if (amount <= this.currentBet) {
-          throw new Error('Bet too small');
-        }
-
-        const diff = amount - player.bet;
-        if (diff > player.chips) {
-          throw new Error('Not enough chips');
-        }
-
-        player.chips -= diff;
-        player.bet = amount;
-        this.pot += diff;
-        this.currentBet = amount;
-
-        if (player.chips === 0) player.allIn = true;
-
-        this.players.forEach(p => {
-          if (!p.folded && !p.allIn) p.acted = false;
-        });
-
-        player.acted = true;
-        break;
-      }
-
       default:
         throw new Error('Unknown command');
     }
@@ -143,17 +114,6 @@ class GameState {
 
   /* ================= FLOW ================= */
 
-  _bettingRoundFinished() {
-    return this.players.every(p => {
-      if (p.folded || p.allIn) return true;
-      return p.acted && p.bet === this.currentBet;
-    });
-  }
-
-  _moveToNextPlayer() {
-    this.currentPlayerIndex = this._nextActivePlayer(this.currentPlayerIndex);
-  }
-
   _nextStage() {
     this.players.forEach(p => {
       p.bet = 0;
@@ -172,51 +132,46 @@ class GameState {
       this.communityCards.push(this.deck.pop());
     } else if (this.stage === 'river') {
       this.stage = 'showdown';
-      this._doShowdown();
-      this.finished = true;
+      this.finishShowdown();
       return;
     }
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
   }
 
-  /* ================= SHOWDOWN ================= */
-
-  _doShowdown() {
+  finishShowdown() {
     const activePlayers = this.players.filter(p => !p.folded);
 
-    const hands = activePlayers.map(p => {
-      const cards = [...p.hand, ...this.communityCards].map(this._cardToSolver);
-      return {
-        player: p,
-        hand: Hand.solve(cards)
-      };
+    const solvedHands = activePlayers.map(p => {
+      const cards = [...p.hand, ...this.communityCards]
+        .map(c => c.rank + c.suit);
+      const solved = Hand.solve(cards);
+      p.lastHand = solved;
+      return solved;
     });
 
-    const winningHands = Hand.winners(hands.map(h => h.hand));
+    const winningHands = Hand.winners(solvedHands);
 
-    const winners = hands.filter(h =>
-      winningHands.includes(h.hand)
+    this.winners = activePlayers.filter(p =>
+      winningHands.includes(p.lastHand)
     );
 
-    const winAmount = Math.floor(this.pot / winners.length);
+    this.winningHandName = winningHands[0].name;
 
-    winners.forEach(w => {
-      w.player.chips += winAmount;
+    const share = Math.floor(this.pot / this.winners.length);
+    this.winners.forEach(w => {
+      w.chips += share;
     });
 
-    this.winners = winners.map(w => ({
-      id: w.player.id,
-      name: w.player.name,
-      rank: w.hand.name
-    }));
+    this.finished = true;
   }
 
   _finishByFold() {
     const winner = this.players.find(p => !p.folded);
     if (winner) {
       winner.chips += this.pot;
-      this.winners = [{ id: winner.id, name: winner.name, rank: 'Fold win' }];
+      this.winners = [winner];
+      this.winningHandName = 'Fold win';
     }
     this.finished = true;
   }
@@ -225,6 +180,16 @@ class GameState {
 
   _onlyOneLeft() {
     return this.players.filter(p => !p.folded).length === 1;
+  }
+
+  _bettingRoundFinished() {
+    return this.players.every(p =>
+      p.folded || p.allIn || (p.acted && p.bet === this.currentBet)
+    );
+  }
+
+  _moveToNextPlayer() {
+    this.currentPlayerIndex = this._nextActivePlayer(this.currentPlayerIndex);
   }
 
   _nextActivePlayer(from) {
@@ -236,7 +201,7 @@ class GameState {
   }
 
   _initDeck() {
-    const suits = ['♠', '♥', '♦', '♣'];
+    const suits = ['s','h','d','c'];
     const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
     this.deck = [];
     for (const s of suits) {
@@ -253,11 +218,6 @@ class GameState {
     }
   }
 
-  _cardToSolver(card) {
-    const suitMap = { '♠': 's', '♥': 'h', '♦': 'd', '♣': 'c' };
-    return card.rank + suitMap[card.suit];
-  }
-
   /* ================= STATE ================= */
 
   getPublicState() {
@@ -265,19 +225,20 @@ class GameState {
       stage: this.stage,
       pot: this.pot,
       communityCards: this.communityCards,
-      currentBet: this.currentBet,
       currentPlayerId: this.players[this.currentPlayerIndex]?.id,
+      finished: this.finished,
+      winningHandName: this.winningHandName,
+      winners: this.winners.map(w => ({
+        id: w.id,
+        name: w.name
+      })),
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
-        bet: p.bet,
         folded: p.folded,
-        allIn: p.allIn,
-        hand: this.finished ? p.hand : undefined
-      })),
-      winners: this.winners,
-      finished: this.finished
+        showHand: this.finished ? p.hand : []
+      }))
     };
   }
 
@@ -285,11 +246,6 @@ class GameState {
     const p = this.players.find(x => x.id === playerId);
     if (!p) return null;
     return { hand: p.hand };
-  }
-
-  playerLeave(playerId) {
-    const p = this.players.find(x => x.id === playerId);
-    if (p) p.folded = true;
   }
 }
 

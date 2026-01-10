@@ -25,10 +25,11 @@ button {
   border-radius:6px;
   display:inline-block;
 }
-.box {
-  border:1px solid #1a6b52;
+.winner {
+  background:#1e7f5c;
   padding:10px;
-  margin-top:10px;
+  margin-top:15px;
+  border-radius:8px;
 }
 </style>
 </head>
@@ -49,6 +50,7 @@ const me = {
 let room = null;
 let myCards = [];
 let lastState = null;
+let showdownResult = null;
 
 /* ---------- UI ---------- */
 
@@ -78,39 +80,54 @@ function renderGame(state) {
 
   document.getElementById('app').innerHTML = `
     <h2>Игра</h2>
-    <p>Стадия: <b>${state.stage}</b></p>
+    <p>Стадия: ${state.stage}</p>
     <p>Банк: ${state.pot}</p>
 
-    <div class="box">
-      <h3>Карты стола</h3>
-      ${state.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
-    </div>
+    <h3>Карты стола</h3>
+    ${state.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
 
-    <div class="box">
-      <h3>Ваши карты</h3>
-      ${myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
-    </div>
+    <h3>Ваши карты</h3>
+    ${myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
 
-    <div class="box">
-      <h3>Игроки</h3>
-      ${state.players.map(p => `
-        <div>
-          <b>${p.name}</b>
-          ${p.folded ? '❌ fold' : ''}
-          ${state.stage === 'showdown' && p.hand ? `
-            <div>
-              ${p.hand.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
-            </div>
-          ` : ''}
-        </div>
-      `).join('')}
-    </div>
+    <h3>Игроки</h3>
+    <ul>
+      ${state.players.map(p =>
+        `<li>
+          ${p.name}
+          ${p.id === state.currentPlayerId ? '⬅ ход' : ''}
+          ${state.stage === 'showdown' && p.hand
+            ? `<br>${p.hand.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}`
+            : ''}
+        </li>`
+      ).join('')}
+    </ul>
 
-    ${!state.finished && state.currentPlayerId === me.id ? `
+    ${state.currentPlayerId === me.id && !state.finished ? `
       <button onclick="check()">Чек</button>
       <button onclick="call()">Колл</button>
       <button onclick="fold()">Фолд</button>
     ` : '<p>Ожидание хода...</p>'}
+
+    ${renderWinners()}
+  `;
+}
+
+function renderWinners() {
+  if (!showdownResult) return '';
+
+  return `
+    <div class="winner">
+      <h3>🏆 Победитель${showdownResult.winners.length > 1 ? 'и' : ''}</h3>
+      <ul>
+        ${showdownResult.winners.map(w => `
+          <li>
+            <strong>${w.name}</strong><br>
+            Комбинация: ${w.handName}<br>
+            Выигрыш: ${w.win}
+          </li>
+        `).join('')}
+      </ul>
+    </div>
   `;
 }
 
@@ -119,16 +136,20 @@ function renderGame(state) {
 function createRoom() {
   socket.emit('create_room', { user: me });
 }
+
 function joinRoom() {
   const code = document.getElementById('code').value.trim();
   socket.emit('join_room', { code, user: me });
 }
+
 function leaveRoom() {
   socket.emit('leave_room', { code: room.code, playerId: me.id });
   room = null;
   renderLobby();
 }
+
 function startGame() {
+  showdownResult = null;
   socket.emit('start_game', { code: room.code });
 }
 
@@ -142,17 +163,38 @@ function fold() {
   socket.emit('player_action', { code: room.code, playerId: me.id, action: 'fold' });
 }
 
-/* ---------- SOCKET ---------- */
+/* ---------- SOCKET EVENTS ---------- */
 
-socket.on('room_joined', r => { room = r; renderRoom(); });
-socket.on('room_update', r => { room = r; if (!lastState) renderRoom(); });
+socket.on('room_joined', r => {
+  room = r;
+  renderRoom();
+});
+
+socket.on('room_update', r => {
+  room = r;
+  if (!lastState) renderRoom();
+});
 
 socket.on('game_started', ({ publicState }) => {
+  showdownResult = null;
   socket.emit('get_my_cards', { code: room.code, playerId: me.id });
   renderGame(publicState);
 });
-socket.on('game_update', state => renderGame(state));
-socket.on('my_cards', cards => { myCards = cards; if (lastState) renderGame(lastState); });
+
+socket.on('game_update', state => {
+  renderGame(state);
+});
+
+socket.on('hand_finished', data => {
+  showdownResult = data;
+  if (lastState) renderGame(lastState);
+});
+
+socket.on('my_cards', cards => {
+  myCards = cards;
+  if (lastState) renderGame(lastState);
+});
+
 socket.on('error_msg', msg => alert(msg));
 
 renderLobby();
