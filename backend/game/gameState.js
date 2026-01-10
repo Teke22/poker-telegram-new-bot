@@ -1,8 +1,5 @@
 // backend/game/gameState.js
 
-const SMALL_BLIND = 10;
-const BIG_BLIND = 20;
-
 class GameState {
   constructor(players) {
     this.players = players.map(p => ({
@@ -28,6 +25,11 @@ class GameState {
 
     this.finished = false;
     this.winners = [];
+    this.showHands = false;
+
+    // blinds
+    this.smallBlind = 10;
+    this.bigBlind = 20;
   }
 
   /* ================= INIT ================= */
@@ -44,6 +46,7 @@ class GameState {
     this.stage = 'preflop';
     this.finished = false;
     this.winners = [];
+    this.showHands = false;
 
     this.players.forEach(p => {
       p.hand = [this.deck.pop(), this.deck.pop()];
@@ -53,17 +56,15 @@ class GameState {
       p.acted = false;
     });
 
-    // --- БЛАЙНДЫ ---
-    const sbIndex = this._nextPlayerIndex(this.dealerIndex);
-    const bbIndex = this._nextPlayerIndex(sbIndex);
+    // blinds
+    const sbIndex = this._nextIndex(this.dealerIndex);
+    const bbIndex = this._nextIndex(sbIndex);
 
-    this._postBlind(sbIndex, SMALL_BLIND);
-    this._postBlind(bbIndex, BIG_BLIND);
+    this._postBlind(sbIndex, this.smallBlind);
+    this._postBlind(bbIndex, this.bigBlind);
 
-    this.currentBet = BIG_BLIND;
-
-    // первый ход — после BB
-    this.currentPlayerIndex = this._nextPlayerIndex(bbIndex);
+    this.currentBet = this.bigBlind;
+    this.currentPlayerIndex = this._nextIndex(bbIndex);
 
     return true;
   }
@@ -72,7 +73,7 @@ class GameState {
     const p = this.players[index];
     const blind = Math.min(amount, p.chips);
     p.chips -= blind;
-    p.bet = blind;
+    p.bet += blind;
     this.pot += blind;
     if (p.chips === 0) p.allIn = true;
   }
@@ -85,10 +86,6 @@ class GameState {
     const player = this.players[this.currentPlayerIndex];
     if (!player || player.id !== playerId) {
       throw new Error('Not your turn');
-    }
-
-    if (player.folded || player.allIn) {
-      throw new Error('Player cannot act');
     }
 
     if (typeof action === 'string') {
@@ -135,10 +132,8 @@ class GameState {
         player.bet = amount;
         this.pot += diff;
         this.currentBet = amount;
-
         if (player.chips === 0) player.allIn = true;
 
-        // сбрасываем acted у остальных
         this.players.forEach(p => {
           if (!p.folded && !p.allIn) p.acted = false;
         });
@@ -182,7 +177,6 @@ class GameState {
       p.bet = 0;
       p.acted = false;
     });
-
     this.currentBet = 0;
 
     if (this.stage === 'preflop') {
@@ -197,6 +191,7 @@ class GameState {
     } else if (this.stage === 'river') {
       this.stage = 'showdown';
       this.finished = true;
+      this.showHands = true;
       return;
     }
 
@@ -210,6 +205,7 @@ class GameState {
       this.winners = [winner];
     }
     this.finished = true;
+    this.showHands = true;
   }
 
   /* ================= HELPERS ================= */
@@ -218,20 +214,20 @@ class GameState {
     return this.players.filter(p => !p.folded).length === 1;
   }
 
+  _nextIndex(i) {
+    return (i + 1) % this.players.length;
+  }
+
   _nextActivePlayer(from) {
     let i = from;
     do {
-      i = (i + 1) % this.players.length;
+      i = this._nextIndex(i);
     } while (this.players[i].folded || this.players[i].allIn);
     return i;
   }
 
-  _nextPlayerIndex(from) {
-    return (from + 1) % this.players.length;
-  }
-
   _initDeck() {
-    const suits = ['♠', '♥', '♦', '♣'];
+    const suits = ['♠','♥','♦','♣'];
     const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
     this.deck = [];
     for (const s of suits) {
@@ -257,15 +253,16 @@ class GameState {
       communityCards: this.communityCards,
       currentBet: this.currentBet,
       currentPlayerId: this.players[this.currentPlayerIndex]?.id,
+      finished: this.finished,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
         bet: p.bet,
         folded: p.folded,
-        allIn: p.allIn
-      })),
-      finished: this.finished
+        allIn: p.allIn,
+        hand: this.showHands && !p.folded ? p.hand : null
+      }))
     };
   }
 
