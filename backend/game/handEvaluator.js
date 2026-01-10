@@ -1,52 +1,69 @@
-// backend/game/HandEvaluator.js
-
+// backend/game/handEvaluator.js
 const { Hand } = require('pokersolver');
 
-class HandEvaluator {
-  /**
-   * @param players [{ id, hand: [{rank,suit}], folded }]
-   * @param communityCards [{rank,suit}]
-   */
-  static evaluate(players, communityCards) {
-    const activePlayers = players.filter(p => !p.folded);
+/**
+ * players: [
+ *   {
+ *     id,
+ *     hand: [{rank, suit}, {rank, suit}],
+ *     folded
+ *   }
+ * ]
+ *
+ * communityCards: [{rank, suit}, ...]
+ */
+function evaluateHands(players, communityCards) {
+  const activePlayers = players.filter(p => !p.folded);
 
-    if (activePlayers.length === 0) return [];
+  const solved = activePlayers.map(p => {
+    const cards = [
+      ...p.hand,
+      ...communityCards
+    ].map(c => convertCard(c));
 
-    const solvedHands = activePlayers.map(p => {
-      const cards = [...p.hand, ...communityCards].map(c =>
-        HandEvaluator._toSolverCard(c)
-      );
+    const hand = Hand.solve(cards);
 
-      return {
-        player: p,
-        hand: Hand.solve(cards)
-      };
-    });
-
-    const winners = Hand.winners(solvedHands.map(h => h.hand));
-
-    return solvedHands
-      .filter(h => winners.includes(h.hand))
-      .map(h => h.player);
-  }
-
-  static _toSolverCard(card) {
-    // pokersolver формат: "As", "Td", "7h"
-    const rankMap = {
-      '2':'2','3':'3','4':'4','5':'5','6':'6',
-      '7':'7','8':'8','9':'9','T':'T',
-      'J':'J','Q':'Q','K':'K','A':'A'
+    return {
+      playerId: p.id,
+      hand,
+      cards: p.hand
     };
+  });
 
-    const suitMap = {
-      '♠': 's',
-      '♥': 'h',
-      '♦': 'd',
-      '♣': 'c'
-    };
+  const winners = Hand.winners(solved.map(x => x.hand));
 
-    return rankMap[card.rank] + suitMap[card.suit];
-  }
+  return solved.filter(s => winners.includes(s.hand));
 }
 
-module.exports = HandEvaluator;
+/* -------- helpers -------- */
+
+function convertCard(card) {
+  const rankMap = {
+    '2': '2',
+    '3': '3',
+    '4': '4',
+    '5': '5',
+    '6': '6',
+    '7': '7',
+    '8': '8',
+    '9': '9',
+    'T': 'T',
+    'J': 'J',
+    'Q': 'Q',
+    'K': 'K',
+    'A': 'A'
+  };
+
+  const suitMap = {
+    '♠': 's',
+    '♥': 'h',
+    '♦': 'd',
+    '♣': 'c'
+  };
+
+  return rankMap[card.rank] + suitMap[card.suit];
+}
+
+module.exports = {
+  evaluateHands
+};
