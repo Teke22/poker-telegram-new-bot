@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Poker</title>
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+<style>
+body {
+  background:#0b3d2e;
+  color:#fff;
+  font-family:Arial;
+  padding:20px;
+}
+button {
+  padding:10px;
+  margin:5px;
+  background:#1a6b52;
+  color:white;
+  border:none;
+  border-radius:5px;
+  cursor:pointer;
+}
+button:hover {
+  background:#248464;
+}
+button:disabled {
+  background:#555;
+  cursor:not-allowed;
+}
+input {
+  padding:8px;
+  margin:5px;
+  width:100px;
+  border-radius:5px;
+  border:1px solid #ccc;
+}
+.card {
+  background:#fff;
+  color:#000;
+  padding:10px;
+  margin:6px;
+  border-radius:8px;
+  display:inline-block;
+  font-weight:bold;
+  box-shadow:0 2px 4px rgba(0,0,0,0.2);
+}
+.box {
+  border:2px solid #1a6b52;
+  padding:15px;
+  margin-top:15px;
+  border-radius:10px;
+  background:rgba(26, 107, 82, 0.1);
+}
+#status {
+  margin-bottom:15px;
+  font-weight:bold;
+  padding:10px;
+  background:rgba(255, 193, 7, 0.2);
+  border-radius:5px;
+}
+ul {
+  list-style-type:none;
+  padding:0;
+}
+li {
+  padding:5px 0;
+  border-bottom:1px solid rgba(255,255,255,0.1);
+}
+</style>
+</head>
+
+<body>
+
+<!-- 🔔 STATUS -->
+<div id="status" style="margin-bottom:15px;font-weight:bold;"></div>
+
+<div id="app"></div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+
+/* ---------- USER ---------- */
+
+let me;
+if (tg && tg.initDataUnsafe?.user) {
+  me = tg.initDataUnsafe.user;
+} else {
+  me = { id: 'debug_' + Math.random().toString(36).substr(2, 9), first_name: 'Debug' };
+}
+
+/* ---------- SOCKET ---------- */
+
+const socket = io({
+  transports: ['websocket']
+});
+
+/* ---------- STATE ---------- */
+
+let room = null;
+let myCards = [];
+let gameStarted = false;
+let statusMessage = '';
+let lastState = null;
+
+/* ---------- UI ---------- */
+
+function showLobby() {
+  document.getElementById('status').innerText = 'Добро пожаловать в покер!';
+  document.getElementById('app').innerHTML = `
+    <h2>🎴 Poker Lobby</h2>
+    <button onclick="createRoom()" style="background:#d4af37;padding:12px;font-size:16px;">Создать комнату</button>
+    <br><br>
+    <div class="box">
+      <h3>Присоединиться к комнате</h3>
+      <input id="code" placeholder="Введите код комнаты" style="width:150px;">
+      <button onclick="joinRoom()" style="background:#2e7d32;">Войти</button>
+    </div>
+  `;
+}
+
+function showRoom() {
+  document.getElementById('status').innerText = statusMessage;
+  document.getElementById('app').innerHTML = `
+    <h2>🎯 Комната: ${room.code}</h2>
+    
+    <div class="box">
+      <h3>👥 Игроки (${room.players.length}/8)</h3>
+      <ul>
+        ${room.players.map((p, i) => `
+          <li>${i === 0 ? '👑 ' : ''}${p.name} — 💰 ${p.chips} фишек</li>
+        `).join('')}
+      </ul>
+    </div>
+
+    ${room.players.length >= 2 ? `
+      <button onclick="startGame()" style="background:#d4af37;padding:12px;font-size:16px;">🎮 Начать игру</button>
+    ` : `
+      <div class="box">
+        <p>⏳ Ожидание второго игрока…</p>
+        <p>Поделитесь кодом комнаты: <strong>${room.code}</strong></p>
+      </div>
+    `}
+    
+    <br><br>
+    <button onclick="leaveRoom()" style="background:#c62828;">🚪 Выйти из комнаты</button>
+  `;
+}
+
+function renderBoard(state) {
+  if (!state.communityCards?.length) {
+    return '<div class="box"><h3>Борд</h3><p>🂠 Карты еще не открыты</p></div>';
+  }
+
+  return `
+    <div class="box">
+      <h3>📊 Борд (${state.stage})</h3>
+      ${state.communityCards.map(c =>
+        `<span class="card" style="font-size:18px;">${c.rank}${c.suit}</span>`
+      ).join('')}
+    </div>
+  `;
+}
+
+function renderGame(state) {
+  lastState = state;
+  
+  if (state.finished) {
+    document.getElementById('status').innerText = statusMessage || '🎉 Раздача завершена';
+  } else {
+    document.getElementById('status').innerText = statusMessage || `🎲 Стадия: ${state.stage} | Банк: ${state.pot}`;
+  }
+
+  gameStarted = true;
+  const current = state.players.find(p => p.id === state.currentPlayerId);
+  const meState = state.players.find(p => p.id === me.id);
+  
+  if (!meState) {
+    document.getElementById('app').innerHTML = `
+      <h2>Ошибка</h2>
+      <p>Вы не находитесь в этой игре.</p>
+      <button onclick="location.reload()">Вернуться в лобби</button>
+    `;
+    return;
+  }
+
+  document.getElementById('app').innerHTML = `
+    <h2>🎮 Игра в процессе</h2>
+    
+    <div class="box">
+      <p>📊 Стадия: <b>${state.stage}</b></p>
+      <p>💰 Банк: <b>${state.pot}</b></p>
+      ${state.currentBet > 0 ? `<p>💵 Текущая ставка: <b>${state.currentBet}</b></p>` : ''}
+      <p>🎯 Ход: <b>${current?.name || 'ожидание...'}</b></p>
+    </div>
+
+    ${renderBoard(state)}
+
+    <div class="box">
+      <h3>👥 Игроки</h3>
+      <ul>
+        ${state.players.map(p => `
+          <li style="padding: 8px; margin: 2px 0; ${p.id === me.id ? 'background: rgba(26, 107, 82, 0.3);' : ''}">
+            ${p.id === state.currentPlayerId ? '👉 ' : ''}
+            ${p.id === me.id ? '👤 ' : ''}
+            ${p.name} 
+            ${p.folded ? '❌ (fold)' : ''}
+            ${p.allIn ? '⚠️ (all-in)' : ''}
+            — 💰 ${p.chips}
+            ${p.bet > 0 ? `<span style="color: #d4af37;"> (ставка: ${p.bet})</span>` : ''}
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+
+    <div class="box">
+      <h3>🃏 Ваши карты</h3>
+      ${myCards.length > 0 ? 
+        myCards.map(c => `<span class="card" style="font-size:20px;">${c.rank}${c.suit}</span>`).join('') : 
+        '<p>Карты не получены</p>'}
+    </div>
+
+    <br>
+
+    ${!state.finished && state.currentPlayerId === me.id
+      ? renderActions(state, meState)
+      : state.finished 
+        ? '<div class="box"><p>🎉 Раздача завершена. Новая начнется через несколько секунд...</p></div>'
+        : '<div class="box"><p>⏳ Ожидание хода другого игрока...</p></div>'}
+
+    <br>
+    <button onclick="leaveGame()" style="background:#c62828; padding:10px 20px;">
+      🚪 Встать из-за стола
+    </button>
+    <br><br>
+    <button onclick="showRoom()" style="background:#555; padding:8px 16px;">
+      ↩️ Назад в комнату
+    </button>
+  `;
+}
+
+function renderActions(state, meState) {
+  if (meState.folded) return '<div class="box"><p>❌ Вы сбросили карты</p></div>';
+  if (meState.allIn) return '<div class="box"><p>⚠️ Вы all-in</p></div>';
+
+  const toCall = state.currentBet - meState.bet;
+  const canCheck = toCall <= 0;
+  
+  if (state.currentBet === 0) {
+    // Нет текущих ставок
+    return `
+      <div class="box">
+        <h3>🎯 Ваш ход</h3>
+        <p>Минимальная ставка: 20</p>
+        <input id="betAmount" type="number" min="20" max="${meState.chips}" placeholder="Сумма" value="20">
+        <br><br>
+        <button onclick="bet()" style="background:#d4af37;">💰 Поставить</button>
+        <button onclick="check()" ${!canCheck ? 'disabled' : ''}>✓ Чек</button>
+        <button onclick="fold()" style="background:#c62828;">❌ Фолд</button>
+      </div>
+    `;
+  }
+
+  // Есть ставка для колла
+  const minRaise = state.currentBet * 2;
+  const canRaise = meState.chips >= minRaise - meState.bet;
+  
+  return `
+    <div class="box">
+      <h3>🎯 Ваш ход</h3>
+      <p>Текущая ставка: <b>${state.currentBet}</b></p>
+      <p>Ваша ставка: <b>${meState.bet}</b></p>
+      <p>Нужно доставить: <b>${toCall}</b></p>
+      ${canRaise ? `<p>Минимальный рейз: <b>${minRaise}</b></p>` : ''}
+      
+      ${canRaise ? `
+        <input id="raiseAmount" type="number" min="${minRaise}" max="${meState.chips + meState.bet}" 
+               placeholder="Сумма рейза" value="${minRaise}">
+        <br><br>
+      ` : ''}
+      
+      <button onclick="call()" style="background:#2e7d32;">
+        ${toCall > 0 ? `📞 Колл (${toCall})` : '✓ Чек'}
+      </button>
+      
+      ${canRaise ? `
+        <button onclick="raise()" style="background:#d4af37;">📈 Рейз</button>
+      ` : ''}
+      
+      <button onclick="fold()" style="background:#c62828;">❌ Фолд</button>
+      
+      ${toCall >= meState.chips ? `
+        <br><br>
+        <button onclick="allIn()" style="background:#f57c00;">⚠️ All-in (${meState.chips})</button>
+      ` : ''}
+    </div>
+  `;
+}
+
+/* ---------- ACTIONS ---------- */
+
+function createRoom() {
+  socket.emit('create_room', { user: me });
+  statusMessage = 'Создание комнаты...';
+}
+
+function joinRoom() {
+  const code = document.getElementById('code').value.toUpperCase().trim();
+  if (!code) {
+    alert('Введите код комнаты');
+    return;
+  }
+  socket.emit('join_room', { code, user: me });
+  statusMessage = 'Присоединение к комнаты...';
+}
+
+function leaveRoom() {
+  if (confirm('Выйти из комнаты?')) {
+    socket.emit('leave_room', { code: room.code, playerId: me.id });
+    room = null;
+    gameStarted = false;
+    myCards = [];
+    showLobby();
+  }
+}
+
+function leaveGame() {
+  if (confirm('Вы уверены, что хотите встать из-за стола? Ваши карты будут сброшены.')) {
+    socket.emit('player_leave', {
+      code: room.code,
+      playerId: me.id
+    });
+    
+    // Возвращаемся в лобби
+    room = null;
+    gameStarted = false;
+    myCards = [];
+    showLobby();
+  }
+}
+
+function startGame() {
+  socket.emit('start_game', { code: room.code });
+  statusMessage = 'Запуск игры...';
+}
+
+function fold() {
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: 'fold'
+  });
+}
+
+function check() {
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: 'check'
+  });
+}
+
+function bet() {
+  const amount = Number(document.getElementById('betAmount').value);
+  const meState = lastState.players.find(p => p.id === me.id);
+  
+  if (!meState) {
+    alert('Ошибка: игрок не найден');
+    return;
+  }
+  
+  if (amount < 20) {
+    alert(`Минимальная ставка: 20`);
+    return;
+  }
+  
+  if (amount > meState.chips) {
+    alert('Недостаточно фишек');
+    return;
+  }
+  
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'bet', amount }
+  });
+}
+
+function call() {
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'call' }
+  });
+}
+
+function raise() {
+  const amount = Number(document.getElementById('raiseAmount').value);
+  const meState = lastState.players.find(p => p.id === me.id);
+  
+  if (!meState) {
+    alert('Ошибка: игрок не найден');
+    return;
+  }
+  
+  if (amount < lastState.currentBet * 2) {
+    alert(`Минимальный рейз: ${lastState.currentBet * 2}`);
+    return;
+  }
+  
+  const toCall = amount - meState.bet;
+  if (toCall > meState.chips) {
+    alert('Недостаточно фишек');
+    return;
+  }
+  
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'raise', amount }
+  });
+}
+
+function allIn() {
+  const meState = lastState.players.find(p => p.id === me.id);
+  if (!meState) return;
+  
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'raise', amount: meState.chips + meState.bet }
+  });
+}
+
+/* ---------- SOCKET EVENTS ---------- */
+
+socket.on('connect', () => {
+  console.log('Connected to server');
+  statusMessage = '';
+});
+
+socket.on('disconnect', () => {
+  document.getElementById('status').innerText = 'Соединение потеряно. Переподключение...';
+});
+
+socket.on('room_joined', r => {
+  room = r;
+  statusMessage = `Вы в комнате ${r.code}`;
+  showRoom();
+});
+
+socket.on('room_update', r => {
+  room = r;
+  if (!gameStarted) showRoom();
+});
+
+socket.on('game_started', ({ publicState }) => {
+  statusMessage = 'Игра началась!';
+  document.getElementById('status').innerText = statusMessage;
+  
+  // Запрашиваем свои карты
+  socket.emit('get_my_cards', { 
+    code: room.code, 
+    playerId: me.id 
+  });
+  
+  renderGame(publicState);
+});
+
+socket.on('game_update', (state) => {
+  renderGame(state);
+  
+  // Если сейчас наш ход, запрашиваем карты (на всякий случай)
+  if (state.currentPlayerId === me.id) {
+    socket.emit('get_my_cards', { 
+      code: room.code, 
+      playerId: me.id 
+    });
+  }
+});
+
+socket.on('hand_finished', ({ winner, reason }) => {
+  if (winner) {
+    statusMessage = `🏆 Победитель: ${winner.name}!`;
+  } else if (reason === 'fold') {
+    statusMessage = '🎉 Игра завершена (все кроме одного сбросили карты)';
+  } else if (reason === 'showdown') {
+    statusMessage = '🎉 Шоудаун! Карты вскрыты.';
+  } else if (reason === 'player_left') {
+    statusMessage = '👋 Игрок покинул стол';
+  } else {
+    statusMessage = '🎉 Раздача завершена';
+  }
+  
+  document.getElementById('status').innerText = statusMessage;
+  
+  // Обновляем состояние комнаты
+  setTimeout(() => {
+    if (room) {
+      socket.emit('get_room_state', { code: room.code });
+    }
+  }, 1000);
+});
+
+socket.on('my_cards', cards => {
+  myCards = cards;
+  // Если игра началась, перерисовываем
+  if (gameStarted && lastState) {
+    renderGame(lastState);
+  }
+});
+
+socket.on('error_msg', msg => {
+  alert('Ошибка: ' + msg);
+  console.error('Server error:', msg);
+});
+
+socket.on('room_state', r => {
+  room = r;
+  if (!gameStarted) {
+    showRoom();
+  }
+});
+
+/* ---------- START ---------- */
+
+// Запрашиваем состояние комнаты при загрузке (если были в комнате)
+if (localStorage.getItem('lastRoom')) {
+  const lastRoom = localStorage.getItem('lastRoom');
+  document.getElementById('app').innerHTML = '<p>Восстановление соединения...</p>';
+  socket.emit('reconnect_room', { code: lastRoom, user: me });
+}
+
+showLobby();
+
+// Сохраняем код комнаты при входе
+const originalEmit = socket.emit;
+socket.emit = function(event, data) {
+  if (event === 'join_room' && data.code) {
+    localStorage.setItem('lastRoom', data.code);
+  }
+  if (event === 'create_room') {
+    localStorage.removeItem('lastRoom');
+  }
+  return originalEmit.apply(this, arguments);
+};
+</script>
+</body>
+</html>
