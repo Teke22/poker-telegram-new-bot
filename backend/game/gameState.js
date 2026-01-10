@@ -1,146 +1,114 @@
-// backend/game/gameState.js
-const HandEvaluator = require("./HandEvaluator");
+const Deck = require('./deck');
+const HandEvaluator = require('./handEvaluator');
 
 class GameState {
-  constructor(roomId, players, DeckClass) {
+  constructor(roomId, players) {
     this.roomId = roomId;
-    this.players = players; // [{ id, socketId }]
-    this.DeckClass = DeckClass;
+
+    this.players = players.map(p => ({
+      id: p.id,
+      socketId: p.socketId,
+      chips: 1000,
+      hand: [],
+      folded: false,
+      bet: 0
+    }));
 
     this.deck = null;
     this.communityCards = [];
-    this.stage = "waiting"; // waiting | preflop | flop | turn | river | showdown
-    this.hands = new Map(); // playerId -> cards[]
+    this.pot = 0;
+    this.currentPlayerIndex = 0;
+    this.stage = 'preflop'; // preflop | flop | turn | river | showdown
   }
 
-  // ========================
-  // START HAND
-  // ========================
+  /** === НАЧАЛО НОВОЙ РАЗДАЧИ === */
   startGame() {
     console.log(`🔄 Starting new hand in ${this.roomId}`);
 
-    // создаём новую колоду
-    this.deck = new this.DeckClass();
+    this.deck = new Deck();
+    this.deck.shuffle();
 
-    // активные карты колоды
-    let activeCards = [...this.deck.deck];
-
-    // очищаем состояние
     this.communityCards = [];
-    this.hands.clear();
+    this.pot = 0;
+    this.stage = 'preflop';
 
-    // === раздаём по 2 карты каждому игроку ===
-    this.players.forEach(player => {
-      const dealt = this.deck.dealCards(activeCards, 2);
-      activeCards = dealt[0];
-
-      this.hands.set(player.id, dealt[1]);
+    // Сброс игроков
+    this.players.forEach(p => {
+      p.hand = [];
+      p.folded = false;
+      p.bet = 0;
     });
 
-    this.deck.deck = activeCards;
-    this.stage = "preflop";
-  }
-
-  // ========================
-  // COMMUNITY CARDS
-  // ========================
-  dealFlop() {
-    if (this.stage !== "preflop") return;
-
-    let dealt = this.deck.dealCards(this.deck.deck, 3);
-    this.deck.deck = dealt[0];
-    this.communityCards.push(...dealt[1]);
-
-    this.stage = "flop";
-  }
-
-  dealTurn() {
-    if (this.stage !== "flop") return;
-
-    let dealt = this.deck.dealCards(this.deck.deck, 1);
-    this.deck.deck = dealt[0];
-    this.communityCards.push(dealt[1][0]);
-
-    this.stage = "turn";
-  }
-
-  dealRiver() {
-    if (this.stage !== "turn") return;
-
-    let dealt = this.deck.dealCards(this.deck.deck, 1);
-    this.deck.deck = dealt[0];
-    this.communityCards.push(dealt[1][0]);
-
-    this.stage = "river";
-  }
-
-  // ========================
-  // SHOWDOWN
-  // ========================
-  showdown() {
-    if (this.stage !== "river") return;
-
-    const results = [];
-
-    for (const player of this.players) {
-      const hand = this.hands.get(player.id);
-
-      const allCards = [...hand, ...this.communityCards];
-
-      const evaluated = HandEvaluator.evaluate(
-        allCards.map(c => this.normalizeCard(c))
-      );
-
-      results.push({
-        playerId: player.id,
-        hand,
-        result: evaluated
+    // Раздача по 2 карты
+    for (let i = 0; i < 2; i++) {
+      this.players.forEach(player => {
+        player.hand.push(this.deck.deal());
       });
     }
-
-    this.stage = "showdown";
-    return results;
   }
 
-  // ========================
-  // CARD NORMALIZER
-  // ========================
-  normalizeCard(card) {
-    // card: "AH", "10S", "7D"
-    const rank = card.slice(0, card.length - 1);
-    const suitChar = card[card.length - 1];
+  /** === ПЕРЕХОД ПО УЛИЦАМ === */
+  nextStage() {
+    if (this.stage === 'preflop') {
+      this.stage = 'flop';
+      this.communityCards.push(
+        this.deck.deal(),
+        this.deck.deal(),
+        this.deck.deal()
+      );
+    } else if (this.stage === 'flop') {
+      this.stage = 'turn';
+      this.communityCards.push(this.deck.deal());
+    } else if (this.stage === 'turn') {
+      this.stage = 'river';
+      this.communityCards.push(this.deck.deal());
+    } else if (this.stage === 'river') {
+      this.stage = 'showdown';
+      return this.resolveShowdown();
+    }
+  }
 
-    const suitMap = {
-      H: "hearts",
-      D: "diamonds",
-      C: "clubs",
-      S: "spades"
-    };
+  /** === ОПРЕДЕЛЕНИЕ ПОБЕДИТЕЛЯ === */
+  resolveShowdown() {
+    const activePlayers = this.players.filter(p => !p.folded);
+
+    const results = activePlayers.map(player => {
+      const cards = [...player.hand, ...this.communityCards];
+      const hand = HandEvaluator.evaluate(cards);
+
+      return {
+        playerId: player.id,
+        hand
+      };
+    });
+
+    results.sort((a, b) =>
+      HandEvaluator.compareHands(a.hand, b.hand)
+    );
+
+    const winner = results[0];
 
     return {
-      rank,
-      suit: suitMap[suitChar]
+      winnerId: winner.playerId,
+      hand: winner.hand,
+      pot: this.pot
     };
   }
 
-  // ========================
-  // STATE FOR CLIENT
-  // ========================
+  /** === СЕРИАЛИЗАЦИЯ ДЛЯ КЛИЕНТА === */
   getPublicState() {
     return {
+      roomId: this.roomId,
       stage: this.stage,
+      pot: this.pot,
       communityCards: this.communityCards,
       players: this.players.map(p => ({
-        id: p.id
+        id: p.id,
+        chips: p.chips,
+        bet: p.bet,
+        folded: p.folded,
+        handSize: p.hand.length
       }))
-    };
-  }
-
-  getPrivateState(playerId) {
-    return {
-      hand: this.hands.get(playerId) || [],
-      communityCards: this.communityCards,
-      stage: this.stage
     };
   }
 }
