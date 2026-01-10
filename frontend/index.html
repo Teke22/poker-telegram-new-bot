@@ -1,10 +1,9 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8" />
 <title>Poker</title>
 
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
 <style>
@@ -17,50 +16,30 @@ body {
 button {
   padding:10px;
   margin:5px;
-  background:#1a6b52;
-  color:white;
-  border:none;
-  border-radius:5px;
-  cursor:pointer;
-}
-button:hover {
-  background:#248464;
-}
-button:disabled {
-  background:#555;
-}
-input {
-  padding:8px;
-  margin:5px;
 }
 .card {
   background:#fff;
   color:#000;
-  padding:10px;
-  margin:6px;
-  border-radius:8px;
+  padding:6px;
+  margin:4px;
+  border-radius:6px;
   display:inline-block;
-  font-weight:bold;
-}
-.box {
-  border:2px solid #1a6b52;
-  padding:15px;
-  margin-top:15px;
-  border-radius:10px;
 }
 </style>
 </head>
 
 <body>
 
-<div id="status"></div>
+<h1>🃏 Poker Mini App</h1>
 <div id="app"></div>
 
 <script>
-const socket = io({ transports:['websocket'] });
+const socket = io({ transports: ['websocket'] });
 
-const me = window.Telegram?.WebApp?.initDataUnsafe?.user
-  || { id:'debug_'+Math.random(), first_name:'Debug' };
+const me = {
+  id: 'u_' + Math.random().toString(36).slice(2),
+  first_name: 'Player'
+};
 
 let room = null;
 let myCards = [];
@@ -68,12 +47,23 @@ let lastState = null;
 
 /* ---------- UI ---------- */
 
-function showLobby() {
+function renderLobby() {
   document.getElementById('app').innerHTML = `
-    <h2>🎴 Poker</h2>
-    <button onclick="createRoom()">Создать комнату</button><br><br>
-    <input id="code" placeholder="Код комнаты">
+    <button onclick="createRoom()">Создать комнату</button>
+    <br><br>
+    <input id="code" placeholder="Код комнаты" />
     <button onclick="joinRoom()">Войти</button>
+  `;
+}
+
+function renderRoom() {
+  document.getElementById('app').innerHTML = `
+    <h2>Комната ${room.code}</h2>
+    <ul>
+      ${room.players.map(p => `<li>${p.name} (${p.chips})</li>`).join('')}
+    </ul>
+    <button onclick="startGame()">Начать игру</button>
+    <button onclick="leaveRoom()">Выйти</button>
   `;
 }
 
@@ -82,97 +72,91 @@ function renderGame(state) {
   const meState = state.players.find(p => p.id === me.id);
 
   document.getElementById('app').innerHTML = `
-    <h3>Стадия: ${state.stage}</h3>
+    <h2>Игра</h2>
+    <p>Стадия: ${state.stage}</p>
     <p>Банк: ${state.pot}</p>
 
-    <div>
-      ${state.players.map(p => `
-        <div>${p.name} — ${p.chips} ${p.id===state.currentPlayerId?'👉':''}</div>
-      `).join('')}
-    </div>
+    <h3>Карты стола</h3>
+    ${state.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
 
-    <h4>Ваши карты</h4>
+    <h3>Ваши карты</h3>
     ${myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
 
-    <br><br>
-    ${state.currentPlayerId === me.id ? renderActions(meState,state) : '⏳ Ожидание...'}
-  `;
-}
+    <h3>Игроки</h3>
+    <ul>
+      ${state.players.map(p =>
+        `<li>${p.name} ${p.id === state.currentPlayerId ? '⬅ ход' : ''}</li>`
+      ).join('')}
+    </ul>
 
-function renderActions(meState,state) {
-  const toCall = state.currentBet - meState.bet;
-
-  return `
-    <button onclick="check()">✓ Чек</button>
-    <button onclick="fold()">❌ Фолд</button>
-    ${toCall>0 ? `<button onclick="call()">📞 Колл</button>` : ''}
-    <button onclick="raise()">📈 Рейз</button>
+    ${state.currentPlayerId === me.id ? `
+      <button onclick="check()">Чек</button>
+      <button onclick="call()">Колл</button>
+      <button onclick="fold()">Фолд</button>
+    ` : '<p>Ожидание хода...</p>'}
   `;
 }
 
 /* ---------- ACTIONS ---------- */
 
 function createRoom() {
-  socket.emit('create_room',{ user:me });
+  socket.emit('create_room', { user: me });
 }
 
 function joinRoom() {
   const code = document.getElementById('code').value.trim();
-  socket.emit('join_room',{ code, user:me });
+  socket.emit('join_room', { code, user: me });
+}
+
+function leaveRoom() {
+  socket.emit('leave_room', { code: room.code, playerId: me.id });
+  room = null;
+  renderLobby();
+}
+
+function startGame() {
+  socket.emit('start_game', { code: room.code });
 }
 
 function check() {
-  socket.emit('player_action',{
-    code: room.code,
-    playerId: me.id,
-    action: { type:'check' }
-  });
+  socket.emit('player_action', { code: room.code, playerId: me.id, action: 'check' });
 }
-
-function fold() {
-  socket.emit('player_action',{
-    code: room.code,
-    playerId: me.id,
-    action: { type:'fold' }
-  });
-}
-
 function call() {
-  socket.emit('player_action',{
-    code: room.code,
-    playerId: me.id,
-    action: { type:'call' }
-  });
+  socket.emit('player_action', { code: room.code, playerId: me.id, action: { type: 'call' } });
+}
+function fold() {
+  socket.emit('player_action', { code: room.code, playerId: me.id, action: 'fold' });
 }
 
-function raise() {
-  socket.emit('player_action',{
-    code: room.code,
-    playerId: me.id,
-    action: { type:'raise', amount: lastState.currentBet*2 }
-  });
-}
-
-/* ---------- SOCKET ---------- */
+/* ---------- SOCKET EVENTS ---------- */
 
 socket.on('room_joined', r => {
   room = r;
+  renderRoom();
+});
+
+socket.on('room_update', r => {
+  room = r;
+  if (!lastState) renderRoom();
 });
 
 socket.on('game_started', ({ publicState }) => {
-  socket.emit('get_my_cards',{ code:room.code, playerId:me.id });
+  socket.emit('get_my_cards', { code: room.code, playerId: me.id });
   renderGame(publicState);
 });
 
-socket.on('game_update', renderGame);
+socket.on('game_update', state => {
+  renderGame(state);
+});
 
 socket.on('my_cards', cards => {
   myCards = cards;
+  if (lastState) renderGame(lastState);
 });
 
 socket.on('error_msg', msg => alert(msg));
 
-showLobby();
+renderLobby();
 </script>
 
 </body>
