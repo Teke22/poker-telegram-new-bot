@@ -1,5 +1,5 @@
-const HandEvaluator = require('./HandEvaluator');
 const Deck = require('./deck');
+const HandEvaluator = require('./handEvaluator');
 
 class GameState {
   constructor(players) {
@@ -8,39 +8,53 @@ class GameState {
       name: p.name,
       chips: p.chips,
       hand: [],
-      folded: false
+      bet: 0,
+      folded: false,
+      allIn: false
     }));
 
     this.deck = new Deck();
     this.communityCards = [];
+    this.pot = 0;
+
+    this.stage = 'waiting'; // waiting | preflop | flop | turn | river | showdown
     this.currentPlayerIndex = 0;
-    this.stage = 'waiting'; // waiting | preflop | finished
     this.finished = false;
     this.winners = [];
   }
 
-  /* ================= GAME START ================= */
+  /* ================= START GAME ================= */
 
   startGame() {
     if (this.players.length < 2) return false;
 
-    this.deck.shuffle();
-    this.communityCards = [];
-    this.finished = false;
-    this.winners = [];
     this.stage = 'preflop';
+    this.finished = false;
+    this.pot = 0;
+    this.communityCards = [];
 
-    // Раздаём по 2 карты
+    this.deck.shuffle();
+
+    // clear hands
     this.players.forEach(p => {
-      p.hand = [this.deck.draw(), this.deck.draw()];
+      p.hand = [];
+      p.bet = 0;
       p.folded = false;
+      p.allIn = false;
     });
+
+    // deal 2 cards
+    for (let i = 0; i < 2; i++) {
+      this.players.forEach(player => {
+        player.hand.push(this.deck.draw());
+      });
+    }
 
     this.currentPlayerIndex = 0;
     return true;
   }
 
-  /* ================= PLAYER ACTION ================= */
+  /* ================= ACTIONS ================= */
 
   playerAction(playerId, action) {
     if (this.finished) return;
@@ -55,28 +69,39 @@ class GameState {
     }
 
     if (action.type === 'check') {
-      // ничего не делаем, просто ход дальше
+      // nothing for now
     }
 
-    this.advanceTurn();
+    this.nextTurn();
   }
 
-  advanceTurn() {
-    const activePlayers = this.players.filter(p => !p.folded);
-
-    // Если остался один — он победил
-    if (activePlayers.length === 1) {
-      this.finished = true;
-      this.winners = activePlayers;
+  nextTurn() {
+    if (this.isOnlyOneLeft()) {
+      this.finishByFold();
       return;
     }
 
-    let nextIndex = this.currentPlayerIndex;
+    let next = this.currentPlayerIndex;
     do {
-      nextIndex = (nextIndex + 1) % this.players.length;
-    } while (this.players[nextIndex].folded);
+      next = (next + 1) % this.players.length;
+    } while (this.players[next].folded);
 
-    this.currentPlayerIndex = nextIndex;
+    this.currentPlayerIndex = next;
+  }
+
+  /* ================= FINISH ================= */
+
+  isOnlyOneLeft() {
+    return this.players.filter(p => !p.folded).length === 1;
+  }
+
+  finishByFold() {
+    this.finished = true;
+    const winner = this.players.find(p => !p.folded);
+    if (winner) {
+      winner.chips += this.pot;
+      this.winners = [winner.id];
+    }
   }
 
   /* ================= STATE ================= */
@@ -84,41 +109,30 @@ class GameState {
   getPublicState() {
     return {
       stage: this.stage,
+      pot: this.pot,
       communityCards: this.communityCards,
+      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
+        bet: p.bet,
         folded: p.folded
-      })),
-      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
-      finished: this.finished,
-      winners: this.winners.map(w => w.id)
+      }))
     };
   }
 
   getPlayerPrivateState(playerId) {
     const player = this.players.find(p => p.id === playerId);
     if (!player) return null;
-
-    return {
-      hand: player.hand
-    };
+    return { hand: player.hand };
   }
-
-  /* ================= LEAVE ================= */
 
   playerLeave(playerId) {
     const p = this.players.find(x => x.id === playerId);
     if (p) p.folded = true;
-
-    const alive = this.players.filter(x => !x.folded);
-    if (alive.length <= 1) {
-      this.finished = true;
-      this.winners = alive;
-    }
   }
 }
 
-/* 🔴 КРИТИЧЕСКИ ВАЖНО */
+/* ❗❗❗ ВАЖНО ❗❗❗ */
 module.exports = { GameState };
