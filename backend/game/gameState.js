@@ -1,3 +1,5 @@
+// backend/game/gameState.js
+
 class GameState {
   constructor(players) {
     this.players = players.map(p => ({
@@ -7,66 +9,57 @@ class GameState {
       hand: [],
       bet: 0,
       folded: false,
-      allIn: false
+      allIn: false,
+      acted: false
     }));
 
-    this.deck = this.createDeck();
+    this.deck = [];
     this.communityCards = [];
     this.pot = 0;
 
-    this.stage = 'preflop'; // preflop | flop | turn | river | showdown
-    this.currentPlayerIndex = 0;
+    this.stage = 'preflop';
     this.currentBet = 0;
+
+    this.dealerIndex = 0;
+    this.currentPlayerIndex = 0;
+
     this.finished = false;
+    this.showdown = false;
+    this.winners = [];
   }
 
-  /* ================= SETUP ================= */
+  /* ================= INIT ================= */
 
   startGame() {
     if (this.players.length < 2) return false;
 
-    this.shuffle(this.deck);
+    this._initDeck();
+    this._shuffle();
+
+    this.communityCards = [];
+    this.pot = 0;
+    this.currentBet = 0;
+    this.stage = 'preflop';
+    this.finished = false;
+    this.showdown = false;
+    this.winners = [];
 
     this.players.forEach(p => {
       p.hand = [this.deck.pop(), this.deck.pop()];
       p.bet = 0;
       p.folded = false;
       p.allIn = false;
+      p.acted = false;
     });
 
-    this.currentPlayerIndex = 0;
-    this.currentBet = 0;
-    this.pot = 0;
-    this.communityCards = [];
-    this.stage = 'preflop';
-    this.finished = false;
-
+    this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
     return true;
-  }
-
-  createDeck() {
-    const suits = ['♠', '♥', '♦', '♣'];
-    const ranks = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
-    const deck = [];
-    for (const s of suits) {
-      for (const r of ranks) {
-        deck.push({ rank: r, suit: s });
-      }
-    }
-    return deck;
-  }
-
-  shuffle(deck) {
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
-    }
   }
 
   /* ================= ACTIONS ================= */
 
   playerAction(playerId, action) {
-    if (this.finished) return;
+    if (this.finished) throw new Error('Hand finished');
 
     const player = this.players[this.currentPlayerIndex];
     if (!player || player.id !== playerId) {
@@ -74,106 +67,106 @@ class GameState {
     }
 
     if (player.folded || player.allIn) {
-      this.nextPlayer();
+      throw new Error('Player cannot act');
+    }
+
+    if (typeof action === 'string') {
+      action = { type: action };
+    }
+
+    switch (action.type) {
+      case 'fold':
+        player.folded = true;
+        player.acted = true;
+        break;
+
+      case 'check':
+        if (this.currentBet !== player.bet) {
+          throw new Error('Cannot check');
+        }
+        player.acted = true;
+        break;
+
+      case 'call': {
+        const toCall = this.currentBet - player.bet;
+        const amount = Math.min(toCall, player.chips);
+        player.chips -= amount;
+        player.bet += amount;
+        this.pot += amount;
+        if (player.chips === 0) player.allIn = true;
+        player.acted = true;
+        break;
+      }
+
+      case 'bet':
+      case 'raise': {
+        const amount = action.amount;
+        if (amount <= this.currentBet) {
+          throw new Error('Bet too small');
+        }
+        const diff = amount - player.bet;
+        if (diff > player.chips) {
+          throw new Error('Not enough chips');
+        }
+
+        player.chips -= diff;
+        player.bet = amount;
+        this.pot += diff;
+        this.currentBet = amount;
+        if (player.chips === 0) player.allIn = true;
+
+        this.players.forEach(p => {
+          if (!p.folded && !p.allIn) p.acted = false;
+        });
+
+        player.acted = true;
+        break;
+      }
+
+      default:
+        throw new Error('Unknown command');
+    }
+
+    if (this._onlyOneLeft()) {
+      this._finishByFold();
       return;
     }
 
-    // STRING ACTIONS
-    if (action === 'fold') {
-      player.folded = true;
+    if (this._bettingRoundFinished()) {
+      this._nextStage();
+      return;
     }
 
-    if (action === 'check') {
-      if (this.currentBet > player.bet) {
-        throw new Error('Cannot check');
-      }
-    }
-
-    // OBJECT ACTIONS
-    if (typeof action === 'object') {
-      const { type, amount } = action;
-
-      if (type === 'bet') {
-        if (this.currentBet !== 0) {
-          throw new Error('Bet not allowed');
-        }
-        this.placeBet(player, amount);
-      }
-
-      if (type === 'call') {
-        const toCall = this.currentBet - player.bet;
-        this.placeBet(player, toCall);
-      }
-
-      if (type === 'raise') {
-        if (amount <= this.currentBet) {
-          throw new Error('Raise too small');
-        }
-        const diff = amount - player.bet;
-        this.currentBet = amount;
-        this.placeBet(player, diff);
-      }
-    }
-
-    this.nextPlayer();
-    this.checkRoundEnd();
-  }
-
-  placeBet(player, amount) {
-    if (amount <= 0) return;
-
-    if (amount >= player.chips) {
-      amount = player.chips;
-      player.allIn = true;
-    }
-
-    player.chips -= amount;
-    player.bet += amount;
-    this.pot += amount;
-
-    if (player.bet > this.currentBet) {
-      this.currentBet = player.bet;
-    }
+    this._moveToNextPlayer();
   }
 
   /* ================= FLOW ================= */
 
-  nextPlayer() {
-    let count = this.players.length;
-    do {
-      this.currentPlayerIndex =
-        (this.currentPlayerIndex + 1) % this.players.length;
-      count--;
-    } while (
-      count > 0 &&
-      (this.players[this.currentPlayerIndex].folded ||
-       this.players[this.currentPlayerIndex].allIn)
-    );
+  _moveToNextPlayer() {
+    this.currentPlayerIndex = this._nextActivePlayer(this.currentPlayerIndex);
   }
 
-  checkRoundEnd() {
-    const active = this.players.filter(p => !p.folded);
-
-    if (active.length === 1) {
-      active[0].chips += this.pot;
-      this.finished = true;
-      return;
-    }
-
-    const allMatched = active.every(p => p.bet === this.currentBet || p.allIn);
-
-    if (allMatched) {
-      this.advanceStage();
-    }
+  _bettingRoundFinished() {
+    return this.players.every(p => {
+      if (p.folded || p.allIn) return true;
+      return p.acted && p.bet === this.currentBet;
+    });
   }
 
-  advanceStage() {
-    this.players.forEach(p => (p.bet = 0));
+  _nextStage() {
+    this.players.forEach(p => {
+      p.bet = 0;
+      p.acted = false;
+    });
     this.currentBet = 0;
 
     if (this.stage === 'preflop') {
       this.stage = 'flop';
-      this.communityCards.push(this.deck.pop(), this.deck.pop(), this.deck.pop());
+      this.communityCards.push(
+        this.deck.pop(),
+        this.deck.pop(),
+        this.deck.pop()
+      );
     } else if (this.stage === 'flop') {
       this.stage = 'turn';
       this.communityCards.push(this.deck.pop());
@@ -181,11 +174,70 @@ class GameState {
       this.stage = 'river';
       this.communityCards.push(this.deck.pop());
     } else if (this.stage === 'river') {
-      this.stage = 'showdown';
-      this.finished = true;
-      // временно: победитель — первый активный
-      const winner = this.players.find(p => !p.folded);
-      if (winner) winner.chips += this.pot;
+      this._finishByShowdown();
+      return;
+    }
+
+    this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
+  }
+
+  _finishByFold() {
+    const winner = this.players.find(p => !p.folded);
+    if (winner) {
+      winner.chips += this.pot;
+      this.winners = [winner];
+    }
+    this.finished = true;
+  }
+
+  _finishByShowdown() {
+    this.stage = 'showdown';
+    this.showdown = true;
+
+    // ⛔ временно: просто первый не сфолдивший
+    const alive = this.players.filter(p => !p.folded);
+    const winner = alive[0];
+
+    if (winner) {
+      winner.chips += this.pot;
+      this.winners = [winner];
+    }
+
+    this.finished = true;
+  }
+
+  /* ================= HELPERS ================= */
+
+  _onlyOneLeft() {
+    return this.players.filter(p => !p.folded).length === 1;
+  }
+
+  _nextActivePlayer(from) {
+    let i = from;
+    do {
+      i = (i + 1) % this.players.length;
+    } while (
+      this.players[i].folded ||
+      this.players[i].allIn
+    );
+    return i;
+  }
+
+  _initDeck() {
+    const suits = ['♠', '♥', '♦', '♣'];
+    const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
+    this.deck = [];
+    for (const s of suits) {
+      for (const r of ranks) {
+        this.deck.push({ rank: r, suit: s });
+      }
+    }
+  }
+
+  _shuffle() {
+    for (let i = this.deck.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [this.deck[i], this.deck[j]] = [this.deck[j], this.deck[i]];
     }
   }
 
@@ -196,17 +248,19 @@ class GameState {
       stage: this.stage,
       pot: this.pot,
       communityCards: this.communityCards,
-      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       currentBet: this.currentBet,
-      finished: this.finished,
+      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
         bet: p.bet,
         folded: p.folded,
-        allIn: p.allIn
-      }))
+        allIn: p.allIn,
+        hand: this.showdown ? p.hand : undefined
+      })),
+      finished: this.finished,
+      showdown: this.showdown
     };
   }
 
