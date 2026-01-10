@@ -1,5 +1,8 @@
 // backend/game/gameState.js
 
+const SMALL_BLIND = 10;
+const BIG_BLIND = 20;
+
 class GameState {
   constructor(players) {
     this.players = players.map(p => ({
@@ -50,8 +53,28 @@ class GameState {
       p.acted = false;
     });
 
-    this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
+    // --- БЛАЙНДЫ ---
+    const sbIndex = this._nextPlayerIndex(this.dealerIndex);
+    const bbIndex = this._nextPlayerIndex(sbIndex);
+
+    this._postBlind(sbIndex, SMALL_BLIND);
+    this._postBlind(bbIndex, BIG_BLIND);
+
+    this.currentBet = BIG_BLIND;
+
+    // первый ход — после BB
+    this.currentPlayerIndex = this._nextPlayerIndex(bbIndex);
+
     return true;
+  }
+
+  _postBlind(index, amount) {
+    const p = this.players[index];
+    const blind = Math.min(amount, p.chips);
+    p.chips -= blind;
+    p.bet = blind;
+    this.pot += blind;
+    if (p.chips === 0) p.allIn = true;
   }
 
   /* ================= ACTIONS ================= */
@@ -79,7 +102,7 @@ class GameState {
         break;
 
       case 'check':
-        if (this.currentBet !== player.bet) {
+        if (player.bet !== this.currentBet) {
           throw new Error('Cannot check');
         }
         player.acted = true;
@@ -115,6 +138,7 @@ class GameState {
 
         if (player.chips === 0) player.allIn = true;
 
+        // сбрасываем acted у остальных
         this.players.forEach(p => {
           if (!p.folded && !p.allIn) p.acted = false;
         });
@@ -158,15 +182,12 @@ class GameState {
       p.bet = 0;
       p.acted = false;
     });
+
     this.currentBet = 0;
 
     if (this.stage === 'preflop') {
       this.stage = 'flop';
-      this.communityCards.push(
-        this.deck.pop(),
-        this.deck.pop(),
-        this.deck.pop()
-      );
+      this.communityCards.push(this.deck.pop(), this.deck.pop(), this.deck.pop());
     } else if (this.stage === 'flop') {
       this.stage = 'turn';
       this.communityCards.push(this.deck.pop());
@@ -189,7 +210,6 @@ class GameState {
       this.winners = [winner];
     }
     this.finished = true;
-    this.stage = 'showdown';
   }
 
   /* ================= HELPERS ================= */
@@ -204,6 +224,10 @@ class GameState {
       i = (i + 1) % this.players.length;
     } while (this.players[i].folded || this.players[i].allIn);
     return i;
+  }
+
+  _nextPlayerIndex(from) {
+    return (from + 1) % this.players.length;
   }
 
   _initDeck() {
@@ -233,17 +257,15 @@ class GameState {
       communityCards: this.communityCards,
       currentBet: this.currentBet,
       currentPlayerId: this.players[this.currentPlayerIndex]?.id,
-      finished: this.finished,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
         bet: p.bet,
         folded: p.folded,
-        allIn: p.allIn,
-        // 👇 КАРТЫ ТОЛЬКО НА ШОУДАУНЕ
-        hand: this.stage === 'showdown' ? p.hand : null
-      }))
+        allIn: p.allIn
+      })),
+      finished: this.finished
     };
   }
 
