@@ -6,13 +6,16 @@ class GameState {
     this.players = players.map(p => ({
       id: p.id,
       name: p.name,
-      chips: p.chips,
+      chips: p.chips ?? 1000,
       hand: [],
       folded: false,
-      bet: 0
+      bet: 0,
+      allIn: false
     }));
 
     this.deck = new Deck();
+    this.deck.shuffle();
+
     this.communityCards = [];
     this.pot = 0;
 
@@ -21,43 +24,39 @@ class GameState {
     this.finished = false;
   }
 
-  /* ================== GAME START ================== */
-
+  /* ================== START GAME ================== */
   startGame() {
     if (this.players.length < 2) return false;
 
-    this.deck.shuffle();
     this.stage = 'preflop';
     this.finished = false;
-
-    // очистка
-    this.communityCards = [];
     this.pot = 0;
+    this.communityCards = [];
 
     this.players.forEach(p => {
       p.hand = [];
       p.folded = false;
       p.bet = 0;
+      p.allIn = false;
     });
 
-    // раздача 2 карт
+    // Раздача 2 карт каждому
     for (let i = 0; i < 2; i++) {
       this.players.forEach(player => {
-        if (player.chips > 0) {
-          player.hand.push(this.deck.draw());
-        }
+        player.hand.push(this.deck.draw());
       });
     }
 
-    this.currentPlayerIndex = this.findNextActivePlayer(0);
+    this.currentPlayerIndex = 0;
     return true;
   }
 
   /* ================== PLAYER ACTION ================== */
-
   playerAction(playerId, action) {
+    if (this.finished) return;
+
     const player = this.players.find(p => p.id === playerId);
-    if (!player || player.folded || this.finished) return;
+    if (!player || player.folded) return;
 
     switch (action.type) {
       case 'fold':
@@ -65,82 +64,45 @@ class GameState {
         break;
 
       case 'call':
-        this.pot += player.bet;
+      case 'check':
         break;
 
       case 'bet':
-        if (action.amount > player.chips) return;
-        player.chips -= action.amount;
-        player.bet += action.amount;
-        this.pot += action.amount;
+        const amount = Math.min(action.amount, player.chips);
+        player.chips -= amount;
+        player.bet += amount;
+        this.pot += amount;
+        if (player.chips === 0) player.allIn = true;
         break;
-
-      default:
-        return;
     }
 
-    this.advanceTurn();
+    this.nextTurn();
   }
 
-  /* ================== TURN FLOW ================== */
-
-  advanceTurn() {
-    if (this.checkHandFinished()) {
-      this.finishHand();
-      return;
-    }
-
-    const next = this.findNextActivePlayer(this.currentPlayerIndex + 1);
-    if (next === null) {
-      this.nextStage();
-    } else {
-      this.currentPlayerIndex = next;
-    }
-  }
-
-  nextStage() {
-    this.players.forEach(p => (p.bet = 0));
-
-    if (this.stage === 'preflop') {
-      this.stage = 'flop';
-      this.deck.draw();
-      this.communityCards.push(this.deck.draw(), this.deck.draw(), this.deck.draw());
-    } else if (this.stage === 'flop') {
-      this.stage = 'turn';
-      this.deck.draw();
-      this.communityCards.push(this.deck.draw());
-    } else if (this.stage === 'turn') {
-      this.stage = 'river';
-      this.deck.draw();
-      this.communityCards.push(this.deck.draw());
-    } else if (this.stage === 'river') {
-      this.stage = 'showdown';
-      this.finishHand();
-      return;
-    }
-
-    this.currentPlayerIndex = this.findNextActivePlayer(0);
-  }
-
-  /* ================== FINISH HAND ================== */
-
-  finishHand() {
-    this.finished = true;
-
+  /* ================== NEXT TURN ================== */
+  nextTurn() {
     const activePlayers = this.players.filter(p => !p.folded);
 
     if (activePlayers.length === 1) {
-      activePlayers[0].chips += this.pot;
+      this.finishGame();
       return;
     }
 
-    const results = activePlayers.map(player => {
-      const hand = HandEvaluator.evaluate([
-        ...player.hand,
-        ...this.communityCards
-      ]);
-      return { player, hand };
-    });
+    this.currentPlayerIndex =
+      (this.currentPlayerIndex + 1) % this.players.length;
+  }
+
+  /* ================== FINISH ================== */
+  finishGame() {
+    this.stage = 'showdown';
+    this.finished = true;
+
+    const contenders = this.players.filter(p => !p.folded);
+
+    const results = contenders.map(p => ({
+      player: p,
+      hand: HandEvaluator.evaluate([...p.hand, ...this.communityCards])
+    }));
 
     results.sort((a, b) =>
       HandEvaluator.compareHands(b.hand, a.hand)
@@ -148,39 +110,30 @@ class GameState {
 
     const winner = results[0].player;
     winner.chips += this.pot;
+
+    this.winners = [{
+      id: winner.id,
+      name: winner.name,
+      hand: results[0].hand
+    }];
   }
 
-  /* ================== HELPERS ================== */
-
-  checkHandFinished() {
-    const active = this.players.filter(p => !p.folded);
-    return active.length <= 1;
-  }
-
-  findNextActivePlayer(startIndex) {
-    for (let i = 0; i < this.players.length; i++) {
-      const index = (startIndex + i) % this.players.length;
-      const p = this.players[index];
-      if (!p.folded && p.chips > 0) return index;
-    }
-    return null;
-  }
-
-  /* ================== STATE ================== */
-
+  /* ================== STATES ================== */
   getPublicState() {
     return {
       stage: this.stage,
       pot: this.pot,
       communityCards: this.communityCards,
-      currentPlayerIndex: this.currentPlayerIndex,
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
         bet: p.bet,
         folded: p.folded
-      }))
+      })),
+      currentPlayerIndex: this.currentPlayerIndex,
+      finished: this.finished,
+      winners: this.winners || []
     };
   }
 
@@ -189,7 +142,12 @@ class GameState {
     if (!player) return null;
     return { hand: player.hand };
   }
+
+  playerLeave(playerId) {
+    const player = this.players.find(p => p.id === playerId);
+    if (player) player.folded = true;
+  }
 }
 
-/* ❗❗❗ КЛЮЧЕВОЕ МЕСТО ❗❗❗ */
-module.exports = GameState;
+/* ✅ ВАЖНО: ПРАВИЛЬНЫЙ ЭКСПОРТ */
+module.exports = { GameState };
