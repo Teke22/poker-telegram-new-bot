@@ -102,7 +102,6 @@ class GameState {
         if (amount <= this.currentBet) {
           throw new Error('Bet too small');
         }
-
         const diff = amount - player.bet;
         if (diff > player.chips) {
           throw new Error('Not enough chips');
@@ -115,6 +114,7 @@ class GameState {
 
         if (player.chips === 0) player.allIn = true;
 
+        // сброс acted у всех остальных
         this.players.forEach(p => {
           if (!p.folded && !p.allIn) p.acted = false;
         });
@@ -158,12 +158,15 @@ class GameState {
       p.bet = 0;
       p.acted = false;
     });
-
     this.currentBet = 0;
 
     if (this.stage === 'preflop') {
       this.stage = 'flop';
-      this.communityCards.push(this.deck.pop(), this.deck.pop(), this.deck.pop());
+      this.communityCards.push(
+        this.deck.pop(),
+        this.deck.pop(),
+        this.deck.pop()
+      );
     } else if (this.stage === 'flop') {
       this.stage = 'turn';
       this.communityCards.push(this.deck.pop());
@@ -172,14 +175,12 @@ class GameState {
       this.communityCards.push(this.deck.pop());
     } else if (this.stage === 'river') {
       this.stage = 'showdown';
-      this._finishByShowdown();
+      this.finished = true;
       return;
     }
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
   }
-
-  /* ================= FINISH ================= */
 
   _finishByFold() {
     const winner = this.players.find(p => !p.folded);
@@ -187,23 +188,8 @@ class GameState {
       winner.chips += this.pot;
       this.winners = [winner];
     }
+    this.finished = true;
     this.stage = 'showdown';
-    this.finished = true;
-  }
-
-  _finishByShowdown() {
-    const alive = this.players.filter(p => !p.folded);
-
-    // ⚠️ ПОКА: простой победитель (первый живой)
-    // позже заменим на HandEvaluator
-    const winner = alive[0];
-
-    if (winner) {
-      winner.chips += this.pot;
-      this.winners = [winner];
-    }
-
-    this.finished = true;
   }
 
   /* ================= HELPERS ================= */
@@ -216,7 +202,10 @@ class GameState {
     let i = from;
     do {
       i = (i + 1) % this.players.length;
-    } while (this.players[i].folded || this.players[i].allIn);
+    } while (
+      this.players[i].folded ||
+      this.players[i].allIn
+    );
     return i;
   }
 
@@ -246,9 +235,9 @@ class GameState {
       pot: this.pot,
       communityCards: this.communityCards,
       currentBet: this.currentBet,
-      currentPlayerId: this.finished ? null : this.players[this.currentPlayerIndex]?.id,
+      currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       finished: this.finished,
-      winners: this.winners.map(w => ({ id: w.id, name: w.name })),
+
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
@@ -256,7 +245,12 @@ class GameState {
         bet: p.bet,
         folded: p.folded,
         allIn: p.allIn,
-        hand: this.stage === 'showdown' ? p.hand : null
+
+        // 🔥 КЛЮЧЕВОЕ МЕСТО
+        hand:
+          this.stage === 'showdown' && !p.folded
+            ? p.hand
+            : null
       }))
     };
   }
