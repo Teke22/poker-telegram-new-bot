@@ -50,7 +50,6 @@ const me = {
 let room = null;
 let myCards = [];
 let lastState = null;
-let showdownResult = null;
 
 /* ---------- UI ---------- */
 
@@ -76,7 +75,6 @@ function renderRoom() {
 
 function renderGame(state) {
   lastState = state;
-  const meState = state.players.find(p => p.id === me.id);
 
   document.getElementById('app').innerHTML = `
     <h2>Игра</h2>
@@ -84,22 +82,28 @@ function renderGame(state) {
     <p>Банк: ${state.pot}</p>
 
     <h3>Карты стола</h3>
-    ${state.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
+    ${state.communityCards.map(c =>
+      `<span class="card">${c.rank}${c.suit}</span>`
+    ).join('')}
 
     <h3>Ваши карты</h3>
-    ${myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
+    ${myCards.map(c =>
+      `<span class="card">${c.rank}${c.suit}</span>`
+    ).join('')}
 
     <h3>Игроки</h3>
     <ul>
-      ${state.players.map(p =>
-        `<li>
-          ${p.name}
-          ${p.id === state.currentPlayerId ? '⬅ ход' : ''}
-          ${state.stage === 'showdown' && p.hand
-            ? `<br>${p.hand.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}`
+      ${state.players.map(p => `
+        <li>
+          ${p.name} (${p.chips})
+          ${p.id === state.currentPlayerId ? ' ⬅ ход' : ''}
+          ${state.finished
+            ? `<br>${p.showHand.map(c =>
+                `<span class="card">${c.rank}${c.suit}</span>`
+              ).join('')}`
             : ''}
-        </li>`
-      ).join('')}
+        </li>
+      `).join('')}
     </ul>
 
     ${state.currentPlayerId === me.id && !state.finished ? `
@@ -108,23 +112,20 @@ function renderGame(state) {
       <button onclick="fold()">Фолд</button>
     ` : '<p>Ожидание хода...</p>'}
 
-    ${renderWinners()}
+    ${renderWinners(state)}
   `;
 }
 
-function renderWinners() {
-  if (!showdownResult) return '';
+function renderWinners(state) {
+  if (!state.finished || !state.winners?.length) return '';
 
   return `
     <div class="winner">
-      <h3>🏆 Победитель${showdownResult.winners.length > 1 ? 'и' : ''}</h3>
+      <h3>🏆 Победитель${state.winners.length > 1 ? 'и' : ''}</h3>
+      <p><strong>Комбинация:</strong> ${state.winningHandName}</p>
       <ul>
-        ${showdownResult.winners.map(w => `
-          <li>
-            <strong>${w.name}</strong><br>
-            Комбинация: ${w.handName}<br>
-            Выигрыш: ${w.win}
-          </li>
+        ${state.winners.map(w => `
+          <li><strong>${w.name}</strong></li>
         `).join('')}
       </ul>
     </div>
@@ -149,18 +150,31 @@ function leaveRoom() {
 }
 
 function startGame() {
-  showdownResult = null;
   socket.emit('start_game', { code: room.code });
 }
 
 function check() {
-  socket.emit('player_action', { code: room.code, playerId: me.id, action: 'check' });
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: 'check'
+  });
 }
+
 function call() {
-  socket.emit('player_action', { code: room.code, playerId: me.id, action: { type: 'call' } });
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'call' }
+  });
 }
+
 function fold() {
-  socket.emit('player_action', { code: room.code, playerId: me.id, action: 'fold' });
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: 'fold'
+  });
 }
 
 /* ---------- SOCKET EVENTS ---------- */
@@ -176,18 +190,15 @@ socket.on('room_update', r => {
 });
 
 socket.on('game_started', ({ publicState }) => {
-  showdownResult = null;
-  socket.emit('get_my_cards', { code: room.code, playerId: me.id });
+  socket.emit('get_my_cards', {
+    code: room.code,
+    playerId: me.id
+  });
   renderGame(publicState);
 });
 
 socket.on('game_update', state => {
   renderGame(state);
-});
-
-socket.on('hand_finished', data => {
-  showdownResult = data;
-  if (lastState) renderGame(lastState);
 });
 
 socket.on('my_cards', cards => {
