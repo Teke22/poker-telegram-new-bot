@@ -12,21 +12,20 @@ class GameState {
       folded: false,
       allIn: false,
       acted: false,
-      solvedHand: null
+      lastHand: null
     }));
 
     this.deck = [];
     this.communityCards = [];
     this.pot = 0;
 
-    this.stage = 'preflop'; // preflop | flop | turn | river | showdown
+    this.stage = 'preflop';
     this.currentBet = 0;
 
     this.dealerIndex = 0;
     this.currentPlayerIndex = 0;
 
     this.finished = false;
-
     this.winners = [];
     this.winningHandName = null;
   }
@@ -44,7 +43,6 @@ class GameState {
     this.currentBet = 0;
     this.stage = 'preflop';
     this.finished = false;
-
     this.winners = [];
     this.winningHandName = null;
 
@@ -54,7 +52,7 @@ class GameState {
       p.folded = false;
       p.allIn = false;
       p.acted = false;
-      p.solvedHand = null;
+      p.lastHand = null;
     });
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
@@ -80,7 +78,7 @@ class GameState {
         break;
 
       case 'check':
-        if (player.bet !== this.currentBet) {
+        if (this.currentBet !== player.bet) {
           throw new Error('Cannot check');
         }
         player.acted = true;
@@ -125,11 +123,7 @@ class GameState {
 
     if (this.stage === 'preflop') {
       this.stage = 'flop';
-      this.communityCards.push(
-        this.deck.pop(),
-        this.deck.pop(),
-        this.deck.pop()
-      );
+      this.communityCards.push(this.deck.pop(), this.deck.pop(), this.deck.pop());
     } else if (this.stage === 'flop') {
       this.stage = 'turn';
       this.communityCards.push(this.deck.pop());
@@ -138,34 +132,31 @@ class GameState {
       this.communityCards.push(this.deck.pop());
     } else if (this.stage === 'river') {
       this.stage = 'showdown';
-      this._finishShowdown();
+      this.finishShowdown();
       return;
     }
 
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
   }
 
-  /* ================= SHOWDOWN ================= */
-
-  _finishShowdown() {
+  finishShowdown() {
     const activePlayers = this.players.filter(p => !p.folded);
 
     const solvedHands = activePlayers.map(p => {
       const cards = [...p.hand, ...this.communityCards]
-        .map(c => c.rank + c.suit); // format: Ah Ks etc
-
+        .map(c => c.rank + c.suit);
       const solved = Hand.solve(cards);
-      p.solvedHand = solved;
+      p.lastHand = solved;
       return solved;
     });
 
-    const winningSolvedHands = Hand.winners(solvedHands);
+    const winningHands = Hand.winners(solvedHands);
 
     this.winners = activePlayers.filter(p =>
-      winningSolvedHands.includes(p.solvedHand)
+      winningHands.includes(p.lastHand)
     );
 
-    this.winningHandName = winningSolvedHands[0].name;
+    this.winningHandName = winningHands[0].name;
 
     const share = Math.floor(this.pot / this.winners.length);
     this.winners.forEach(w => {
@@ -180,7 +171,7 @@ class GameState {
     if (winner) {
       winner.chips += this.pot;
       this.winners = [winner];
-      this.winningHandName = 'Win by fold';
+      this.winningHandName = 'Fold win';
     }
     this.finished = true;
   }
@@ -210,7 +201,7 @@ class GameState {
   }
 
   _initDeck() {
-    const suits = ['s', 'h', 'd', 'c'];
+    const suits = ['s','h','d','c'];
     const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
     this.deck = [];
     for (const s of suits) {
@@ -246,7 +237,7 @@ class GameState {
         name: p.name,
         chips: p.chips,
         folded: p.folded,
-        hand: this.finished ? p.hand : []
+        showHand: this.finished ? p.hand : []
       }))
     };
   }
