@@ -9,89 +9,234 @@
 
 <style>
 body {
-  background:#0b3d2e;
+  background: linear-gradient(135deg, #0b3d2e 0%, #1a5c48 100%);
   color:#fff;
-  font-family:Arial;
+  font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   padding:10px;
   margin:0;
+  min-height:100vh;
 }
 button {
   padding:12px 16px;
   margin:5px;
   border:none;
-  border-radius:6px;
+  border-radius:8px;
   cursor:pointer;
   font-weight:bold;
   min-width:100px;
   font-size:14px;
+  transition:all 0.3s;
+  box-shadow:0 3px 6px rgba(0,0,0,0.2);
 }
 button:hover {
-  opacity:0.9;
+  transform:translateY(-2px);
+  box-shadow:0 5px 10px rgba(0,0,0,0.3);
+}
+button:active {
+  transform:translateY(0);
 }
 button:disabled {
   background:#666 !important;
   cursor:not-allowed;
   opacity:0.5;
+  transform:none !important;
 }
 .card {
-  background:#fff;
-  color:#000;
-  padding:8px 10px;
-  margin:3px;
-  border-radius:5px;
   display:inline-block;
+  width:50px;
+  height:70px;
+  margin:3px;
+  border-radius:6px;
+  position:relative;
   font-weight:bold;
+  box-shadow:0 3px 6px rgba(0,0,0,0.3);
+  overflow:hidden;
+}
+.card-red {
+  background:linear-gradient(145deg, #ffffff, #f0f0f0);
+  color:#d63031;
+  border:2px solid #d63031;
+}
+.card-black {
+  background:linear-gradient(145deg, #ffffff, #f0f0f0);
+  color:#2d3436;
+  border:2px solid #2d3436;
+}
+.card-rank {
+  position:absolute;
+  top:5px;
+  left:5px;
+  font-size:18px;
+  font-weight:bold;
+}
+.card-suit {
+  position:absolute;
+  bottom:5px;
+  right:5px;
+  font-size:20px;
+}
+.card-center {
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%, -50%);
+  font-size:28px;
 }
 .status {
-  padding:10px;
-  background:#2c3e50;
-  border-radius:5px;
-  margin-bottom:10px;
+  padding:12px;
+  background:rgba(44, 62, 80, 0.8);
+  border-radius:8px;
+  margin-bottom:15px;
   font-weight:bold;
+  text-align:center;
+  border-left:4px solid #2ecc71;
 }
 .player-row {
-  padding:8px;
-  margin:4px 0;
-  background:rgba(255,255,255,0.1);
-  border-radius:5px;
+  padding:10px;
+  margin:6px 0;
+  background:rgba(255,255,255,0.08);
+  border-radius:8px;
+  transition:all 0.3s;
 }
 .current-turn {
-  background:rgba(46, 204, 113, 0.2);
+  background:rgba(46, 204, 113, 0.25);
   border-left:4px solid #2ecc71;
+  box-shadow:0 0 10px rgba(46, 204, 113, 0.3);
 }
 .folded {
   opacity:0.5;
+  background:rgba(127, 140, 141, 0.2);
 }
-.allin {
+.allin-indicator {
   color:#f39c12;
+  font-weight:bold;
+  animation:pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { opacity:1; }
+  50% { opacity:0.6; }
+  100% { opacity:1; }
 }
 .actions-box {
-  background:rgba(0,0,0,0.2);
+  background:rgba(0,0,0,0.25);
+  padding:20px;
+  border-radius:10px;
+  margin:20px 0;
+  border:2px solid #2ecc71;
+}
+.pot-info {
+  background:rgba(52, 73, 94, 0.8);
   padding:15px;
   border-radius:8px;
   margin:15px 0;
-  border:1px solid #2ecc71;
-}
-.pot-info {
-  background:#34495e;
-  padding:10px;
-  border-radius:5px;
-  margin:10px 0;
   display:flex;
   justify-content:space-around;
+  text-align:center;
+  box-shadow:0 4px 8px rgba(0,0,0,0.2);
 }
-.btn-fold { background:#e74c3c; color:white; }
-.btn-check { background:#27ae60; color:white; }
-.btn-call { background:#3498db; color:white; }
-.btn-bet { background:#f39c12; color:white; }
-.btn-raise { background:#e67e22; color:white; }
-.btn-allin { background:#9b59b6; color:white; }
+.pot-amount {
+  font-size:24px;
+  font-weight:bold;
+  color:#f1c40f;
+}
+.btn-fold { 
+  background:linear-gradient(145deg, #e74c3c, #c0392b);
+  color:white;
+}
+.btn-check { 
+  background:linear-gradient(145deg, #27ae60, #219653);
+  color:white;
+}
+.btn-call { 
+  background:linear-gradient(145deg, #3498db, #2980b9);
+  color:white;
+}
+.btn-bet { 
+  background:linear-gradient(145deg, #f39c12, #e67e22);
+  color:white;
+}
+.btn-raise { 
+  background:linear-gradient(145deg, #e67e22, #d35400);
+  color:white;
+}
+.btn-allin { 
+  background:linear-gradient(145deg, #9b59b6, #8e44ad);
+  color:white;
+}
+.badge {
+  display:inline-block;
+  padding:3px 8px;
+  border-radius:12px;
+  font-size:0.8em;
+  font-weight:bold;
+  margin-left:5px;
+}
+.badge-dealer { background:#9b59b6; }
+.badge-sb { background:#3498db; }
+.badge-bb { background:#e74c3c; }
+.badge-you { background:#2ecc71; }
+.badge-allin { background:#f39c12; }
+.badge-fold { background:#7f8c8d; }
+.player-name {
+  font-weight:bold;
+  color:#3498db;
+}
+.you-name {
+  color:#2ecc71;
+  font-weight:bold;
+}
+.chips-amount {
+  color:#f1c40f;
+  font-weight:bold;
+}
+.bet-amount {
+  color:#e74c3c;
+  font-weight:bold;
+}
+.community-cards-container {
+  background:rgba(44, 62, 80, 0.6);
+  padding:15px;
+  border-radius:10px;
+  margin:15px 0;
+  text-align:center;
+}
+.my-cards-container {
+  background:rgba(46, 204, 113, 0.15);
+  padding:15px;
+  border-radius:10px;
+  margin:15px 0;
+  text-align:center;
+  border:2px dashed rgba(46, 204, 113, 0.5);
+}
+.players-container {
+  background:rgba(0,0,0,0.2);
+  padding:15px;
+  border-radius:10px;
+  margin:15px 0;
+}
+.stage-indicator {
+  display:inline-block;
+  padding:5px 15px;
+  background:#9b59b6;
+  border-radius:20px;
+  font-weight:bold;
+  margin-left:10px;
+}
+.winners-container {
+  background:linear-gradient(135deg, rgba(46, 204, 113, 0.3), rgba(39, 174, 96, 0.3));
+  padding:20px;
+  border-radius:10px;
+  margin:20px 0;
+  text-align:center;
+  animation:pulse 2s infinite;
+  border:2px solid #2ecc71;
+}
 </style>
 </head>
 
 <body>
 
-<div id="status" class="status">Загрузка...</div>
+<div id="status" class="status">🎮 Подключение к игре...</div>
 <div id="app"></div>
 
 <script>
@@ -100,15 +245,18 @@ const tg = window.Telegram?.WebApp;
 // Инициализируем пользователя
 let me;
 if (tg && tg.initDataUnsafe?.user) {
+  const user = tg.initDataUnsafe.user;
   me = {
-    id: String(tg.initDataUnsafe.user.id),
-    name: tg.initDataUnsafe.user.first_name || 'Player',
+    id: String(user.id),
+    name: user.first_name || 
+          (user.username ? '@' + user.username : `Игрок_${String(user.id).slice(-4)}`),
     chips: 1000
   };
 } else {
+  const randomId = Math.random().toString(36).substr(2, 6).toUpperCase();
   me = {
-    id: 'debug_' + Math.random().toString(36).substr(2, 9),
-    name: 'DebugPlayer',
+    id: 'debug_' + randomId,
+    name: `Игрок_${randomId}`,
     chips: 1000
   };
 }
@@ -119,292 +267,42 @@ let room = null;
 let myCards = [];
 let gameState = null;
 
-// ============= UI FUNCTIONS =============
+// ============= UTILITY FUNCTIONS =============
 
-function showLobby() {
-  document.getElementById('app').innerHTML = `
-    <div style="text-align:center;">
-      <h2>🎴 Poker</h2>
-      <p>Ваш ID: ${me.id}</p>
-      
-      <div style="margin:20px 0;">
-        <button onclick="createRoom()" style="background:#f39c12; padding:15px 25px; font-size:16px;">
-          🎮 Создать комнату
-        </button>
-      </div>
-      
-      <div style="margin:20px 0;">
-        <h3>Присоединиться:</h3>
-        <input id="code" placeholder="Код комнаты" style="padding:10px; width:150px;">
-        <button onclick="joinRoom()" style="background:#27ae60; padding:10px 20px;">
-          Войти
-        </button>
-      </div>
-    </div>
-  `;
-  updateStatus('Добро пожаловать в покер!');
-}
-
-function showRoom() {
-  if (!room) return;
+function getPlayerDisplayName(player, isMe = false) {
+  if (isMe) return `${player.name} 👤`;
   
-  document.getElementById('app').innerHTML = `
-    <h2>🎯 Комната: ${room.code}</h2>
-    <p>Код для приглашения: <strong>${room.code}</strong></p>
-    
-    <h3>👥 Игроки (${room.players.length})</h3>
-    ${room.players.map(p => `
-      <div class="player-row">
-        ${p.name} - 💰 ${p.chips} фишек
-        ${p.id === me.id ? ' (Вы)' : ''}
-      </div>
-    `).join('')}
-    
-    <div style="margin-top:20px;">
-      ${room.players.length >= 2 ? `
-        <button onclick="startGame()" style="background:#27ae60; padding:12px 24px;">
-          🎯 Начать игру
-        </button>
-      ` : `
-        <p>⏳ Ожидаем второго игрока...</p>
-      `}
-      
-      <button onclick="leaveRoom()" style="background:#e74c3c;">
-        🚪 Выйти
-      </button>
-    </div>
-  `;
-  updateStatus(`Вы в комнате ${room.code}`);
-}
-
-function showGame() {
-  if (!gameState) return;
+  // Если имя начинается с @ - это username
+  if (player.name.startsWith('@')) return player.name;
   
-  const isMyTurn = gameState.currentPlayerId === me.id && !gameState.finished;
-  const meInGame = gameState.players.find(p => p.id === me.id);
-  
-  // Обновляем наши фишки из состояния игры
-  if (meInGame) {
-    me.chips = meInGame.chips;
+  // Если имя содержит 'Игрок_' - показываем короткий ID
+  if (player.name.includes('Игрок_')) {
+    const idPart = player.name.split('_')[1] || '';
+    return `Игрок_${idPart.substring(0, 4)}`;
   }
   
-  document.getElementById('app').innerHTML = `
-    <h2>🎮 Игра</h2>
-    
-    <div class="pot-info">
-      <div>
-        <div><strong>Стадия:</strong> ${getStageName(gameState.stage)}</div>
-        <div><strong>Банк:</strong> ${gameState.pot}</div>
-      </div>
-      <div>
-        <div><strong>Текущая ставка:</strong> ${gameState.currentBet}</div>
-        <div><strong>Ходит:</strong> ${gameState.players.find(p => p.id === gameState.currentPlayerId)?.name || '?'}</div>
-      </div>
-    </div>
-    
-    <div>
-      <h3>📊 Карты стола</h3>
-      ${gameState.communityCards.length > 0 
-        ? gameState.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')
-        : '<p>Карты еще не выложены</p>'
-      }
-    </div>
-    
-    <div>
-      <h3>🃏 Ваши карты</h3>
-      ${myCards.length > 0 
-        ? myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')
-        : '<p>Загрузка карт...</p>'
-      }
-    </div>
-    
-    <div>
-      <h3>👥 Игроки за столом</h3>
-      ${gameState.players.map(p => {
-        const isCurrent = p.id === gameState.currentPlayerId;
-        const isDealer = gameState.players.indexOf(p) === gameState.dealerIndex;
-        const isSB = gameState.players.indexOf(p) === gameState.sbIndex;
-        const isBB = gameState.players.indexOf(p) === gameState.bbIndex;
-        
-        return `
-          <div class="player-row ${isCurrent ? 'current-turn' : ''} ${p.folded ? 'folded' : ''}">
-            <div style="display:flex; justify-content:space-between;">
-              <div>
-                ${p.id === me.id ? '👤 ' : ''}
-                ${p.name}
-                ${isDealer ? ' 🃏' : ''}
-                ${isSB ? ' SB' : ''}
-                ${isBB ? ' BB' : ''}
-                ${p.folded ? ' ❌' : ''}
-                ${p.allIn ? ' ⚡' : ''}
-                ${isCurrent ? ' 🎯' : ''}
-              </div>
-              <div>
-                💰 ${p.chips}
-                ${p.bet > 0 ? `<span style="color:#f39c12;"> (+${p.bet})</span>` : ''}
-              </div>
-            </div>
-          </div>
-        `;
-      }).join('')}
-    </div>
-    
-    <!-- КНОПКИ ДЕЙСТВИЙ -->
-    ${!gameState.finished && isMyTurn ? renderActions() : ''}
-    
-    ${gameState.finished ? renderWinners() : ''}
-    
-    <div style="margin-top:20px;">
-      <button onclick="leaveRoom()" style="background:#e74c3c;">
-        🚪 Выйти из комнаты
-      </button>
-      ${gameState.finished ? `
-        <button onclick="startNewHand()" style="background:#27ae60; margin-left:10px;">
-          🃏 Новая раздача
-        </button>
-      ` : ''}
-    </div>
-    
-    <!-- Диалог для ставок -->
-    <div id="betDialog" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
-         background:#2c3e50; padding:20px; border-radius:10px; z-index:1000; box-shadow:0 0 20px rgba(0,0,0,0.5);">
-      <h3 id="dialogTitle">Сделать ставку</h3>
-      <p id="dialogInfo">Информация</p>
-      <input type="number" id="amountInput" value="20" style="padding:10px; width:150px; font-size:16px;">
-      <div style="margin-top:15px;">
-        <button onclick="submitBet()" style="background:#27ae60; padding:10px 20px;">Подтвердить</button>
-        <button onclick="hideBetDialog()" style="background:#7f8c8d; padding:10px 20px; margin-left:10px;">Отмена</button>
-      </div>
-    </div>
-    <div id="overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:999;"></div>
-  `;
-  
-  if (isMyTurn) {
-    updateStatus(`🎯 Ваш ход! Стадия: ${getStageName(gameState.stage)}`);
-  } else if (gameState.finished) {
-    updateStatus(`🎉 Раздача завершена!`);
-  } else {
-    updateStatus(`⏳ Ходит: ${gameState.players.find(p => p.id === gameState.currentPlayerId)?.name || '...'}`);
-  }
-  
-  // Если наша очередь, обновляем действия
-  if (isMyTurn) {
-    updateActions();
-  }
+  // Иначе показываем первые 10 символов имени
+  return player.name.length > 10 ? player.name.substring(0, 10) + '...' : player.name;
 }
 
-function renderActions() {
-  // Базовая версия пока загружается
-  return `
-    <div class="actions-box">
-      <h3>🎯 Ваш ход</h3>
-      <div id="actionsContainer">
-        <p>Загрузка доступных действий...</p>
-      </div>
-    </div>
-  `;
-}
-
-function updateActions() {
-  if (!gameState) return;
+function renderCard(card) {
+  if (!card) return '';
   
-  const meInGame = gameState.players.find(p => p.id === me.id);
-  if (!meInGame) return;
-  
-  const toCall = gameState.currentBet - meInGame.bet;
-  const canCheck = toCall === 0;
-  const canCall = toCall > 0 && meInGame.chips >= toCall;
-  const canBet = gameState.currentBet === 0 && meInGame.chips > 0;
-  const canRaise = meInGame.chips > toCall && toCall < meInGame.chips;
-  const isAllIn = meInGame.allIn;
-  
-  console.log('Action calculation:', {
-    toCall,
-    canCheck,
-    canCall,
-    canBet,
-    canRaise,
-    isAllIn,
-    currentBet: gameState.currentBet,
-    myBet: meInGame.bet,
-    myChips: meInGame.chips
-  });
-  
-  const actionsContainer = document.getElementById('actionsContainer');
-  if (!actionsContainer) return;
-  
-  let actionsHTML = '';
-  
-  if (toCall > 0) {
-    actionsHTML += `<p>Нужно поставить: <strong>${toCall}</strong> чтобы коллировать</p>`;
-  }
-  
-  actionsHTML += `
-    <div style="display:flex; flex-wrap:wrap; gap:8px;">
-      <!-- Фолд всегда доступен если не all-in -->
-      <button onclick="fold()" class="btn-fold" ${isAllIn ? 'disabled' : ''}>
-        ❌ Фолд
-      </button>
-      
-      <!-- Чек доступен если не нужно коллить -->
-      ${canCheck ? `
-        <button onclick="check()" class="btn-check">
-          ✓ Чек
-        </button>
-      ` : ''}
-      
-      <!-- Колл доступен если нужно поставить -->
-      ${canCall ? `
-        <button onclick="call()" class="btn-call">
-          📞 Колл (${toCall})
-        </button>
-      ` : ''}
-      
-      <!-- Бет доступен только если никто еще не ставил на этой улице -->
-      ${canBet ? `
-        <button onclick="showBetDialog('bet')" class="btn-bet">
-          💰 Бет
-        </button>
-      ` : ''}
-      
-      <!-- Рейз доступен если у игрока есть фишки для рейза -->
-      ${canRaise ? `
-        <button onclick="showBetDialog('raise')" class="btn-raise">
-          📈 Рейз
-        </button>
-      ` : ''}
-      
-      <!-- All-in доступен если есть фишки -->
-      ${!isAllIn && meInGame.chips > 0 ? `
-        <button onclick="allIn()" class="btn-allin">
-          ⚡ ALL-IN (${meInGame.chips})
-        </button>
-      ` : ''}
-    </div>
-  `;
-  
-  actionsContainer.innerHTML = actionsHTML;
-}
-
-function renderWinners() {
-  if (!gameState.winners || gameState.winners.length === 0) return '';
+  const rank = card.rank;
+  const suit = card.suit.toLowerCase();
+  const isRed = suit === 'h' || suit === 'd';
+  const suitSymbol = {
+    's': '♠',
+    'h': '♥',
+    'd': '♦',
+    'c': '♣'
+  }[suit] || suit;
   
   return `
-    <div class="actions-box" style="background:rgba(46, 204, 113, 0.2);">
-      <h2>🏆 Победители</h2>
-      <p><strong>Лучшая комбинация:</strong> ${gameState.winningHandName || 'Не определено'}</p>
-      
-      <div style="margin:15px 0;">
-        ${gameState.winners.map(winner => {
-          const player = gameState.players.find(p => p.id === winner.id);
-          return `
-            <div class="player-row" style="background:rgba(46, 204, 113, 0.3);">
-              <strong>${player?.name || winner.name}</strong>
-              ${player?.handRank ? `<br>Комбинация: ${player.handRank}` : ''}
-            </div>
-          `;
-        }).join('')}
-      </div>
+    <div class="card ${isRed ? 'card-red' : 'card-black'}">
+      <div class="card-rank">${rank}</div>
+      <div class="card-center">${suitSymbol}</div>
+      <div class="card-suit">${suitSymbol}</div>
     </div>
   `;
 }
@@ -424,10 +322,393 @@ function updateStatus(text) {
   document.getElementById('status').innerText = text;
 }
 
+// ============= UI FUNCTIONS =============
+
+function showLobby() {
+  document.getElementById('app').innerHTML = `
+    <div style="text-align:center; padding:20px;">
+      <h1 style="color:#2ecc71; margin-bottom:30px;">🎴 POKER ROYALE</h1>
+      
+      <div style="background:rgba(0,0,0,0.3); padding:20px; border-radius:15px; margin:0 auto 30px; max-width:400px;">
+        <div style="margin-bottom:20px;">
+          <h3>👤 Ваш профиль</h3>
+          <p><strong>Имя:</strong> ${me.name}</p>
+          <p><strong>ID:</strong> ${me.id.slice(0, 12)}...</p>
+          <p><strong>Фишки:</strong> <span style="color:#f1c40f;">${me.chips}</span></p>
+        </div>
+        
+        <div style="margin:30px 0;">
+          <button onclick="createRoom()" style="
+            background:linear-gradient(145deg, #f39c12, #e67e22); 
+            padding:15px 30px; 
+            font-size:18px;
+            width:100%;
+            margin-bottom:10px;">
+            🎮 СОЗДАТЬ КОМНАТУ
+          </button>
+        </div>
+        
+        <div style="border-top:2px solid rgba(255,255,255,0.1); padding-top:20px;">
+          <h3>🔗 Присоединиться</h3>
+          <input id="code" placeholder="Введите код комнаты" 
+                 style="padding:12px; width:70%; border-radius:8px; border:2px solid #3498db; font-size:16px;">
+          <button onclick="joinRoom()" style="
+            background:linear-gradient(145deg, #27ae60, #219653); 
+            padding:12px 25px; 
+            margin-top:10px;
+            font-size:16px;">
+            ВОЙТИ
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+  updateStatus('Добро пожаловать в покер!');
+}
+
+function showRoom() {
+  if (!room) return;
+  
+  document.getElementById('app').innerHTML = `
+    <div style="max-width:600px; margin:0 auto;">
+      <h2 style="text-align:center; color:#f1c40f;">🎯 КОМНАТА: ${room.code}</h2>
+      
+      <div style="background:rgba(52, 73, 94, 0.8); padding:15px; border-radius:10px; text-align:center; margin:15px 0;">
+        <p style="font-size:20px; margin:0;">
+          <strong>Код для приглашения:</strong><br>
+          <span style="font-size:28px; color:#2ecc71; letter-spacing:3px;">${room.code}</span>
+        </p>
+      </div>
+      
+      <div style="background:rgba(0,0,0,0.3); padding:20px; border-radius:10px; margin:20px 0;">
+        <h3 style="margin-top:0;">👥 Игроки в комнате (${room.players.length})</h3>
+        ${room.players.map(p => `
+          <div class="player-row" style="${p.id === me.id ? 'background:rgba(46, 204, 113, 0.2);' : ''}">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <span class="${p.id === me.id ? 'you-name' : 'player-name'}">
+                  ${getPlayerDisplayName(p, p.id === me.id)}
+                </span>
+                ${p.id === me.id ? '<span class="badge badge-you">ВЫ</span>' : ''}
+              </div>
+              <div>
+                <span class="chips-amount">💰 ${p.chips}</span>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      
+      <div style="text-align:center; margin-top:30px;">
+        ${room.players.length >= 2 ? `
+          <button onclick="startGame()" style="
+            background:linear-gradient(145deg, #27ae60, #219653); 
+            padding:15px 40px; 
+            font-size:18px;
+            margin-right:15px;">
+            🎯 НАЧАТЬ ИГРУ
+          </button>
+        ` : `
+          <div style="background:rgba(243, 156, 18, 0.2); padding:15px; border-radius:8px; margin-bottom:20px;">
+            <p>⏳ Ожидаем второго игрока...</p>
+            <p>Отправьте код <strong>${room.code}</strong> другу</p>
+          </div>
+        `}
+        
+        <button onclick="leaveRoom()" style="
+          background:linear-gradient(145deg, #e74c3c, #c0392b); 
+          padding:15px 30px; 
+          font-size:16px;">
+          🚪 ВЫЙТИ
+        </button>
+      </div>
+    </div>
+  `;
+  updateStatus(`Вы в комнате ${room.code} | Игроков: ${room.players.length}`);
+}
+
+function showGame() {
+  if (!gameState) return;
+  
+  const isMyTurn = gameState.currentPlayerId === me.id && !gameState.finished;
+  const meInGame = gameState.players.find(p => p.id === me.id);
+  
+  // Обновляем наши фишки из состояния игры
+  if (meInGame) {
+    me.chips = meInGame.chips;
+  }
+  
+  const stageName = getStageName(gameState.stage);
+  const currentPlayerName = gameState.players.find(p => p.id === gameState.currentPlayerId)?.name || '...';
+  
+  document.getElementById('app').innerHTML = `
+    <div style="max-width:800px; margin:0 auto;">
+      <h2 style="text-align:center; color:#f1c40f; margin-bottom:5px;">POKER TABLE</h2>
+      <p style="text-align:center; color:#bdc3c7; margin-top:0;">Комната: ${room?.code || ''}</p>
+      
+      <!-- Статус и банк -->
+      <div class="pot-info">
+        <div>
+          <div style="color:#95a5a6;">Стадия</div>
+          <div class="stage-indicator">${stageName}</div>
+        </div>
+        <div>
+          <div style="color:#95a5a6;">Банк</div>
+          <div class="pot-amount">${gameState.pot}</div>
+        </div>
+        <div>
+          <div style="color:#95a5a6;">Текущая ставка</div>
+          <div style="font-size:20px; color:#e74c3c;">${gameState.currentBet}</div>
+        </div>
+      </div>
+      
+      <!-- Карты стола -->
+      <div class="community-cards-container">
+        <h3 style="margin-top:0;">📊 КАРТЫ СТОЛА</h3>
+        ${gameState.communityCards.length > 0 
+          ? gameState.communityCards.map(card => renderCard(card)).join('')
+          : '<p style="color:#95a5a6; font-style:italic;">Карты будут открыты на флопе</p>'
+        }
+      </div>
+      
+      <!-- Ваши карты -->
+      <div class="my-cards-container">
+        <h3 style="margin-top:0;">🃏 ВАШИ КАРТЫ</h3>
+        ${myCards.length > 0 
+          ? myCards.map(card => renderCard(card)).join('')
+          : '<p style="color:#95a5a6;">Загрузка карт...</p>'
+        }
+        ${meInGame ? `
+          <div style="margin-top:15px;">
+            <span style="color:#bdc3c7;">Фишки: </span>
+            <span class="chips-amount">${meInGame.chips}</span>
+            ${meInGame.bet > 0 ? `
+              <span style="margin-left:15px; color:#bdc3c7;">Ставка: </span>
+              <span class="bet-amount">${meInGame.bet}</span>
+            ` : ''}
+          </div>
+        ` : ''}
+      </div>
+      
+      <!-- Игроки -->
+      <div class="players-container">
+        <h3 style="margin-top:0;">👥 ИГРОКИ ЗА СТОЛОМ</h3>
+        ${gameState.players.map(p => {
+          const isCurrent = p.id === gameState.currentPlayerId;
+          const playerIndex = gameState.players.indexOf(p);
+          const isDealer = playerIndex === gameState.dealerIndex;
+          const isSB = playerIndex === gameState.sbIndex;
+          const isBB = playerIndex === gameState.bbIndex;
+          const isMe = p.id === me.id;
+          
+          return `
+            <div class="player-row ${isCurrent ? 'current-turn' : ''} ${p.folded ? 'folded' : ''}">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                  <span class="${isMe ? 'you-name' : 'player-name'}">
+                    ${getPlayerDisplayName(p, isMe)}
+                  </span>
+                  ${isDealer ? '<span class="badge badge-dealer">D</span>' : ''}
+                  ${isSB ? '<span class="badge badge-sb">SB</span>' : ''}
+                  ${isBB ? '<span class="badge badge-bb">BB</span>' : ''}
+                  ${p.folded ? '<span class="badge badge-fold">FOLD</span>' : ''}
+                  ${p.allIn ? '<span class="badge badge-allin">ALL-IN</span>' : ''}
+                  ${isMe ? '<span class="badge badge-you">ВЫ</span>' : ''}
+                  ${isCurrent ? ' 🎯' : ''}
+                </div>
+                <div>
+                  <span class="chips-amount">${p.chips}</span>
+                  ${p.bet > 0 ? `<span class="bet-amount" style="margin-left:10px;">+${p.bet}</span>` : ''}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      
+      <!-- Кнопки действий -->
+      ${!gameState.finished && isMyTurn ? renderActions() : ''}
+      
+      ${gameState.finished ? renderWinners() : ''}
+      
+      <!-- Управление -->
+      <div style="text-align:center; margin-top:30px;">
+        <button onclick="leaveRoom()" style="
+          background:linear-gradient(145deg, #e74c3c, #c0392b); 
+          padding:12px 25px;
+          margin-right:10px;">
+          🚪 Выйти
+        </button>
+        ${gameState.finished ? `
+          <button onclick="startNewHand()" style="
+            background:linear-gradient(145deg, #27ae60, #219653); 
+            padding:12px 25px;">
+            🃏 Новая раздача
+          </button>
+        ` : ''}
+      </div>
+      
+      <!-- Диалог для ставок -->
+      <div id="betDialog" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
+           background:#2c3e50; padding:25px; border-radius:15px; z-index:1000; box-shadow:0 10px 30px rgba(0,0,0,0.5); 
+           min-width:300px;">
+        <h3 id="dialogTitle" style="margin-top:0; color:#f1c40f;">Сделать ставку</h3>
+        <div id="dialogInfo" style="margin:15px 0; line-height:1.6;"></div>
+        <input type="number" id="amountInput" value="20" 
+               style="padding:12px; width:100%; border-radius:8px; border:2px solid #3498db; font-size:16px; box-sizing:border-box;">
+        <div style="margin-top:20px; display:flex; gap:10px;">
+          <button onclick="submitBet()" style="flex:1; background:#27ae60; padding:12px;">Подтвердить</button>
+          <button onclick="hideBetDialog()" style="flex:1; background:#7f8c8d; padding:12px;">Отмена</button>
+        </div>
+      </div>
+      <div id="overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:999;"></div>
+    </div>
+  `;
+  
+  // Обновляем статус
+  if (isMyTurn) {
+    updateStatus(`🎯 ВАШ ХОД! Стадия: ${stageName}`);
+  } else if (gameState.finished) {
+    updateStatus(`🎉 РАЗДАЧА ЗАВЕРШЕНА!`);
+  } else {
+    updateStatus(`⏳ Ходит: ${getPlayerDisplayName(gameState.players.find(p => p.id === gameState.currentPlayerId) || {name: currentPlayerName})}`);
+  }
+  
+  // Если наша очередь, обновляем действия
+  if (isMyTurn) {
+    setTimeout(updateActions, 100);
+  }
+}
+
+function renderActions() {
+  return `
+    <div class="actions-box">
+      <h3 style="margin-top:0; color:#f1c40f; text-align:center;">🎯 ВАШ ХОД</h3>
+      <div id="actionsContainer" style="text-align:center;">
+        <p>Определение доступных действий...</p>
+      </div>
+    </div>
+  `;
+}
+
+function updateActions() {
+  if (!gameState) return;
+  
+  const meInGame = gameState.players.find(p => p.id === me.id);
+  if (!meInGame || meInGame.folded || meInGame.allIn) return;
+  
+  const toCall = gameState.currentBet - meInGame.bet;
+  const canCheck = toCall === 0;
+  const canCall = toCall > 0 && meInGame.chips >= toCall;
+  const canBet = gameState.currentBet === 0 && meInGame.chips > 0;
+  const canRaise = meInGame.chips > toCall && toCall < meInGame.chips;
+  const isAllIn = meInGame.allIn;
+  
+  console.log('Доступные действия:', { toCall, canCheck, canCall, canBet, canRaise, isAllIn });
+  
+  const actionsContainer = document.getElementById('actionsContainer');
+  if (!actionsContainer) return;
+  
+  let actionsHTML = '';
+  
+  if (toCall > 0) {
+    actionsHTML += `
+      <div style="background:rgba(231, 76, 60, 0.2); padding:10px; border-radius:8px; margin-bottom:15px;">
+        <p style="margin:0; font-size:16px;">
+          Нужно поставить: <strong style="color:#e74c3c; font-size:18px;">${toCall}</strong> чтобы коллировать
+        </p>
+      </div>
+    `;
+  }
+  
+  actionsHTML += `
+    <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
+      <!-- Фолд всегда доступен если не all-in -->
+      <button onclick="fold()" class="btn-fold" ${isAllIn ? 'disabled' : ''} style="flex:1; min-width:120px;">
+        ❌ ФОЛД
+      </button>
+      
+      <!-- Чек доступен если не нужно коллить -->
+      ${canCheck ? `
+        <button onclick="check()" class="btn-check" style="flex:1; min-width:120px;">
+          ✓ ЧЕК
+        </button>
+      ` : ''}
+      
+      <!-- Колл доступен если нужно поставить -->
+      ${canCall ? `
+        <button onclick="call()" class="btn-call" style="flex:1; min-width:120px;">
+          📞 КОЛЛ (${toCall})
+        </button>
+      ` : ''}
+      
+      <!-- Бет доступен только если никто еще не ставил на этой улице -->
+      ${canBet ? `
+        <button onclick="showBetDialog('bet')" class="btn-bet" style="flex:1; min-width:120px;">
+          💰 БЕТ
+        </button>
+      ` : ''}
+      
+      <!-- Рейз доступен если у игрока есть фишки для рейза -->
+      ${canRaise ? `
+        <button onclick="showBetDialog('raise')" class="btn-raise" style="flex:1; min-width:120px;">
+          📈 РЕЙЗ
+        </button>
+      ` : ''}
+      
+      <!-- All-in доступен если есть фишки -->
+      ${!isAllIn && meInGame.chips > 0 ? `
+        <button onclick="allIn()" class="btn-allin" style="flex:1; min-width:120px;">
+          ⚡ ALL-IN (${meInGame.chips})
+        </button>
+      ` : ''}
+    </div>
+  `;
+  
+  actionsContainer.innerHTML = actionsHTML;
+}
+
+function renderWinners() {
+  if (!gameState.winners || gameState.winners.length === 0) return '';
+  
+  return `
+    <div class="winners-container">
+      <h2 style="color:#f1c40f; margin-top:0;">🏆 ПОБЕДИТЕЛИ 🏆</h2>
+      <p style="font-size:18px;">
+        <strong>Лучшая комбинация:</strong> 
+        <span style="color:#2ecc71;">${gameState.winningHandName || 'Не определено'}</span>
+      </p>
+      
+      <div style="margin:20px 0;">
+        ${gameState.winners.map(winner => {
+          const player = gameState.players.find(p => p.id === winner.id);
+          return `
+            <div style="background:rgba(255,255,255,0.1); padding:15px; border-radius:10px; margin:10px 0;">
+              <div style="font-size:20px; color:#f1c40f; margin-bottom:5px;">
+                ${getPlayerDisplayName(player || winner, player?.id === me.id)}
+              </div>
+              ${player?.handRank ? `
+                <div style="color:#bdc3c7;">
+                  Комбинация: <strong>${player.handRank}</strong>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join('')}
+      </div>
+      
+      <p style="color:#95a5a6; font-style:italic;">
+        Нажмите "Новая раздача" для продолжения игры
+      </p>
+    </div>
+  `;
+}
+
 // ============= GAME ACTIONS =============
 
 function createRoom() {
   socket.emit('create_room', { user: me });
+  updateStatus('Создание комнаты...');
 }
 
 function joinRoom() {
@@ -437,6 +718,7 @@ function joinRoom() {
     return;
   }
   socket.emit('join_room', { code, user: me });
+  updateStatus('Присоединение к комнате...');
 }
 
 function leaveRoom() {
@@ -453,16 +735,18 @@ function leaveRoom() {
 function startGame() {
   if (!room) return;
   socket.emit('start_game', { code: room.code });
+  updateStatus('Запуск игры...');
 }
 
 function startNewHand() {
   if (!room) return;
   socket.emit('start_game', { code: room.code });
+  updateStatus('Новая раздача...');
 }
 
 // Основные действия игрока
 function fold() {
-  if (!confirm('Сбросить карты?')) return;
+  if (!confirm('Вы уверены, что хотите сбросить карты?')) return;
   socket.emit('player_action', {
     code: room.code,
     playerId: me.id,
@@ -513,21 +797,25 @@ function showBetDialog(type) {
   const title = document.getElementById('dialogTitle');
   
   if (type === 'bet') {
-    title.textContent = 'Сделать ставку';
+    title.textContent = 'СДЕЛАТЬ СТАВКУ';
     info.innerHTML = `
-      Минимальная ставка: <strong>20</strong><br>
-      Ваши фишки: <strong>${meInGame.chips}</strong>
+      <div style="color:#bdc3c7;">
+        <div>Минимальная ставка: <strong style="color:#f39c12;">20</strong></div>
+        <div>Ваши фишки: <strong style="color:#2ecc71;">${meInGame.chips}</strong></div>
+      </div>
     `;
     input.min = 20;
     input.max = meInGame.chips;
     input.value = Math.max(20, Math.min(100, meInGame.chips));
   } else {
-    title.textContent = 'Сделать рейз';
+    title.textContent = 'СДЕЛАТЬ РЕЙЗ';
     const minRaise = gameState.currentBet + gameState.minRaise;
     info.innerHTML = `
-      Текущая ставка: <strong>${gameState.currentBet}</strong><br>
-      Минимальный рейз: <strong>${minRaise}</strong><br>
-      Ваши фишки: <strong>${meInGame.chips}</strong>
+      <div style="color:#bdc3c7;">
+        <div>Текущая ставка: <strong style="color:#e74c3c;">${gameState.currentBet}</strong></div>
+        <div>Минимальный рейз: <strong style="color:#f39c12;">${minRaise}</strong></div>
+        <div>Ваши фишки: <strong style="color:#2ecc71;">${meInGame.chips}</strong></div>
+      </div>
     `;
     input.min = minRaise;
     input.max = meInGame.chips + meInGame.bet;
@@ -536,6 +824,7 @@ function showBetDialog(type) {
   
   dialog.style.display = 'block';
   overlay.style.display = 'block';
+  setTimeout(() => input.focus(), 100);
 }
 
 function hideBetDialog() {
@@ -563,11 +852,11 @@ function submitBet() {
 
 socket.on('connect', () => {
   console.log('Connected to server');
-  updateStatus('Подключено к серверу');
+  updateStatus('✅ Подключено к серверу');
 });
 
 socket.on('disconnect', () => {
-  updateStatus('Соединение потеряно. Переподключение...');
+  updateStatus('❌ Соединение потеряно. Переподключение...');
 });
 
 socket.on('room_joined', (r) => {
@@ -589,7 +878,6 @@ socket.on('game_started', ({ publicState }) => {
   gameState = publicState;
   myCards = [];
   
-  // Запрашиваем свои карты
   setTimeout(() => {
     socket.emit('get_my_cards', {
       code: room.code,
@@ -616,7 +904,7 @@ socket.on('my_cards', (cards) => {
 
 socket.on('error_msg', (msg) => {
   console.error('Server error:', msg);
-  alert('Ошибка: ' + msg);
+  alert('❌ Ошибка: ' + msg);
 });
 
 // Инициализация
