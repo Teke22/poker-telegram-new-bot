@@ -1,6 +1,9 @@
 // backend/game/gameState.js
 const { Hand } = require('pokersolver');
 
+const SMALL_BLIND = 10;
+const BIG_BLIND = 20;
+
 class GameState {
   constructor(players) {
     this.players = players.map(p => ({
@@ -21,6 +24,7 @@ class GameState {
 
     this.stage = 'preflop';
     this.currentBet = 0;
+    this.lastRaise = BIG_BLIND;
 
     this.dealerIndex = 0;
     this.currentPlayerIndex = 0;
@@ -30,7 +34,7 @@ class GameState {
     this.winningHandName = null;
   }
 
-  /* ================= INITСВСВ ================= */
+  /* ================= INIT ================= */
 
   startGame() {
     if (this.players.length < 2) return false;
@@ -41,6 +45,7 @@ class GameState {
     this.communityCards = [];
     this.pot = 0;
     this.currentBet = 0;
+    this.lastRaise = BIG_BLIND;
     this.stage = 'preflop';
     this.finished = false;
     this.winners = [];
@@ -55,8 +60,35 @@ class GameState {
       p.lastHand = null;
     });
 
-    this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
+    this._postBlinds();
+
+    // первый ход — после BB
+    this.currentPlayerIndex = this._nextActivePlayer(
+      this._nextActivePlayer(this.dealerIndex)
+    );
+
     return true;
+  }
+
+  _postBlinds() {
+    const sbIndex = this._nextActivePlayer(this.dealerIndex);
+    const bbIndex = this._nextActivePlayer(sbIndex);
+
+    this._postBlind(sbIndex, SMALL_BLIND);
+    this._postBlind(bbIndex, BIG_BLIND);
+
+    this.currentBet = BIG_BLIND;
+  }
+
+  _postBlind(index, amount) {
+    const p = this.players[index];
+    const blind = Math.min(amount, p.chips);
+
+    p.chips -= blind;
+    p.bet += blind;
+    this.pot += blind;
+
+    if (p.chips === 0) p.allIn = true;
   }
 
   /* ================= ACTIONS ================= */
@@ -87,11 +119,43 @@ class GameState {
       case 'call': {
         const toCall = this.currentBet - player.bet;
         const amount = Math.min(toCall, player.chips);
+
         player.chips -= amount;
         player.bet += amount;
         this.pot += amount;
+
         if (player.chips === 0) player.allIn = true;
         player.acted = true;
+        break;
+      }
+
+      case 'bet':
+      case 'raise': {
+        const amount = action.amount;
+
+        const minRaise = this.currentBet + this.lastRaise;
+        if (amount < minRaise) {
+          throw new Error(`Minimum raise is ${minRaise}`);
+        }
+
+        const diff = amount - player.bet;
+        if (diff > player.chips) {
+          throw new Error('Not enough chips');
+        }
+
+        player.chips -= diff;
+        player.bet = amount;
+        this.pot += diff;
+
+        this.lastRaise = amount - this.currentBet;
+        this.currentBet = amount;
+
+        this.players.forEach(p => {
+          if (!p.folded && !p.allIn) p.acted = false;
+        });
+
+        player.acted = true;
+        if (player.chips === 0) player.allIn = true;
         break;
       }
 
@@ -119,7 +183,9 @@ class GameState {
       p.bet = 0;
       p.acted = false;
     });
+
     this.currentBet = 0;
+    this.lastRaise = BIG_BLIND;
 
     if (this.stage === 'preflop') {
       this.stage = 'flop';
@@ -142,15 +208,15 @@ class GameState {
   finishShowdown() {
     const activePlayers = this.players.filter(p => !p.folded);
 
-    const solvedHands = activePlayers.map(p => {
-      const cards = [...p.hand, ...this.communityCards]
-        .map(c => c.rank + c.suit);
-      const solved = Hand.solve(cards);
-      p.lastHand = solved;
-      return solved;
+    const solved = activePlayers.map(p => {
+      const cards = [...p.hand, ...this.communityCards].map(
+        c => c.rank + c.suit
+      );
+      p.lastHand = Hand.solve(cards);
+      return p.lastHand;
     });
 
-    const winningHands = Hand.winners(solvedHands);
+    const winningHands = Hand.winners(solved);
 
     this.winners = activePlayers.filter(p =>
       winningHands.includes(p.lastHand)
@@ -159,9 +225,7 @@ class GameState {
     this.winningHandName = winningHands[0].name;
 
     const share = Math.floor(this.pot / this.winners.length);
-    this.winners.forEach(w => {
-      w.chips += share;
-    });
+    this.winners.forEach(w => (w.chips += share));
 
     this.finished = true;
   }
@@ -171,7 +235,7 @@ class GameState {
     if (winner) {
       winner.chips += this.pot;
       this.winners = [winner];
-      this.winningHandName = 'Fold win';
+      this.winningHandName = 'Fold';
     }
     this.finished = true;
   }
@@ -201,7 +265,7 @@ class GameState {
   }
 
   _initDeck() {
-    const suits = ['s','h','d','c'];
+    const suits = ['s', 'h', 'd', 'c'];
     const ranks = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
     this.deck = [];
     for (const s of suits) {
@@ -224,18 +288,17 @@ class GameState {
     return {
       stage: this.stage,
       pot: this.pot,
+      currentBet: this.currentBet,
       communityCards: this.communityCards,
       currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       finished: this.finished,
       winningHandName: this.winningHandName,
-      winners: this.winners.map(w => ({
-        id: w.id,
-        name: w.name
-      })),
+      winners: this.winners.map(w => ({ id: w.id, name: w.name })),
       players: this.players.map(p => ({
         id: p.id,
         name: p.name,
         chips: p.chips,
+        bet: p.bet,
         folded: p.folded,
         showHand: this.finished ? p.hand : []
       }))
@@ -244,8 +307,7 @@ class GameState {
 
   getPlayerPrivateState(playerId) {
     const p = this.players.find(x => x.id === playerId);
-    if (!p) return null;
-    return { hand: p.hand };
+    return p ? { hand: p.hand } : null;
   }
 }
 
