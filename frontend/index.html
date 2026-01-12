@@ -2,132 +2,677 @@
 <html lang="ru">
 <head>
 <meta charset="UTF-8" />
-<title>Poker</title>
-
+<title>Texas Hold'em Poker</title>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-
 <style>
 body {
-  background:#0b3d2e;
-  color:#fff;
-  font-family:Arial;
-  padding:20px;
+  background: linear-gradient(135deg, #0b3d2e 0%, #1a5c48 100%);
+  color: #f0f0f0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  padding: 20px;
+  margin: 0;
+  min-height: 100vh;
 }
-button {
-  padding:10px;
-  margin:5px;
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 15px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
+
+.header {
+  text-align: center;
+  margin-bottom: 30px;
+  padding-bottom: 15px;
+  border-bottom: 2px solid #2ecc71;
+}
+
+h1 {
+  color: #2ecc71;
+  margin: 0;
+  font-size: 2.5em;
+  text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+}
+
+h2, h3 {
+  color: #27ae60;
+  margin-top: 20px;
+}
+
+.game-board {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.main-game {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.side-panel {
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 10px;
+  padding: 20px;
+}
+
 .card {
-  background:#fff;
-  color:#000;
-  padding:6px;
-  margin:4px;
-  border-radius:6px;
-  display:inline-block;
+  background: white;
+  color: #2c3e50;
+  padding: 8px 10px;
+  margin: 4px;
+  border-radius: 6px;
+  display: inline-block;
+  font-weight: bold;
+  box-shadow: 0 3px 6px rgba(0,0,0,0.2);
+  min-width: 40px;
+  text-align: center;
 }
-.winner {
-  background:#1e7f5c;
-  padding:10px;
-  margin-top:15px;
-  border-radius:8px;
+
+.card.spades { border-left: 4px solid #2c3e50; }
+.card.hearts { border-left: 4px solid #e74c3c; color: #e74c3c; }
+.card.diamonds { border-left: 4px solid #e74c3c; color: #e74c3c; }
+.card.clubs { border-left: 4px solid #2c3e50; }
+
+.suit-icon {
+  font-size: 0.9em;
+  margin-left: 2px;
+}
+
+.pot-info {
+  background: #34495e;
+  padding: 15px;
+  border-radius: 8px;
+  margin: 15px 0;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+}
+
+.pot-amount {
+  font-size: 1.8em;
+  font-weight: bold;
+  color: #f1c40f;
+}
+
+.community-cards {
+  background: rgba(52, 73, 94, 0.7);
+  padding: 15px;
+  border-radius: 8px;
+  margin: 15px 0;
+  text-align: center;
+}
+
+.player-list {
+  list-style: none;
+  padding: 0;
+}
+
+.player-item {
+  background: rgba(255, 255, 255, 0.1);
+  margin: 8px 0;
+  padding: 12px;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+  transition: all 0.3s;
+}
+
+.player-item.current-turn {
+  background: rgba(46, 204, 113, 0.2);
+  border-left-color: #2ecc71;
+  box-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+}
+
+.player-item.folded {
+  opacity: 0.6;
+  border-left-color: #7f8c8d;
+}
+
+.player-item.allin {
+  border-left-color: #f39c12;
+}
+
+.player-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.player-chips {
+  color: #f1c40f;
+  font-weight: bold;
+}
+
+.player-bet {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+button {
+  background: #3498db;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1em;
+  transition: all 0.3s;
+  min-width: 100px;
+}
+
+button:hover {
+  background: #2980b9;
+  transform: translateY(-2px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  background: #7f8c8d;
+  cursor: not-allowed;
+  transform: none;
+}
+
+button.fold { background: #e74c3c; }
+button.fold:hover { background: #c0392b; }
+
+button.call { background: #2ecc71; }
+button.call:hover { background: #27ae60; }
+
+button.raise { background: #f39c12; }
+button.raise:hover { background: #d35400; }
+
+button.allin { 
+  background: linear-gradient(45deg, #f39c12, #e74c3c);
+  font-weight: bold;
+}
+
+.stage-indicator {
+  display: inline-block;
+  padding: 5px 15px;
+  background: #9b59b6;
+  border-radius: 20px;
+  font-weight: bold;
+  margin-left: 10px;
+}
+
+.winner-section {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  padding: 20px;
+  border-radius: 10px;
+  margin-top: 20px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0.7); }
+  70% { box-shadow: 0 0 0 10px rgba(46, 204, 113, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(46, 204, 113, 0); }
+}
+
+.side-pot {
+  background: rgba(243, 156, 18, 0.2);
+  padding: 10px;
+  margin: 5px 0;
+  border-radius: 5px;
+  border-left: 3px solid #f39c12;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
+  margin-left: 8px;
+}
+
+.badge-dealer { background: #9b59b6; }
+.badge-sb { background: #3498db; }
+.badge-bb { background: #e74c3c; }
+.badge-allin { background: #f39c12; }
+.badge-folded { background: #7f8c8d; }
+
+.lobby {
+  text-align: center;
+  padding: 40px;
+}
+
+.lobby input {
+  padding: 12px;
+  margin: 10px;
+  border-radius: 6px;
+  border: 2px solid #3498db;
+  font-size: 1em;
+  width: 200px;
+}
+
+.lobby button {
+  margin: 10px;
+}
+
+.status-bar {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 10px;
+  border-radius: 5px;
+  margin: 10px 0;
+  display: flex;
+  justify-content: space-between;
+}
+
+.debug-info {
+  background: rgba(0, 0, 0, 0.5);
+  padding: 15px;
+  border-radius: 8px;
+  margin-top: 20px;
+  font-family: monospace;
+  font-size: 0.9em;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.debug-toggle {
+  background: #7f8c8d;
+  font-size: 0.8em;
+  padding: 5px 10px;
+}
+
+.debug-toggle:hover {
+  background: #95a5a6;
 }
 </style>
 </head>
 
 <body>
-
-<h1>🃏 Poker Mini App</h1>
-<div id="app"></div>
+<div class="container">
+  <div class="header">
+    <h1>♠️ ♥️ Texas Hold'em Poker ♦️ ♣️</h1>
+    <div id="playerInfo"></div>
+  </div>
+  
+  <div id="app"></div>
+  
+  <div id="debugPanel" style="display: none; margin-top: 20px;">
+    <h3>Debug Information</h3>
+    <pre id="debugOutput"></pre>
+  </div>
+</div>
 
 <script>
 const socket = io({ transports: ['websocket'] });
 
 const me = {
-  id: 'u_' + Math.random().toString(36).slice(2),
-  first_name: 'Player'
+  id: 'u_' + Math.random().toString(36).slice(2, 11),
+  name: 'Player_' + Math.floor(Math.random() * 1000),
+  chips: 1000
 };
 
 let room = null;
 let myCards = [];
+let myPrivateState = null;
 let lastState = null;
+let showDebug = false;
 
-/* ---------- UI ---------- */
+/* ---------- UI RENDERERS ---------- */
 
 function renderLobby() {
   document.getElementById('app').innerHTML = `
-    <button onclick="createRoom()">Создать комнату</button>
-    <br><br>
-    <input id="code" placeholder="Код комнаты" />
-    <button onclick="joinRoom()">Войти</button>
+    <div class="lobby">
+      <h2>Добро пожаловать в покер!</h2>
+      <p>Ваш ID: <strong>${me.id}</strong></p>
+      <p>Фишки: <strong>${me.chips}</strong></p>
+      <div style="margin: 30px 0;">
+        <button onclick="createRoom()" style="padding: 15px 30px; font-size: 1.2em;">
+          🎮 Создать комнату
+        </button>
+      </div>
+      <div>
+        <input id="code" placeholder="Введите код комнаты" />
+        <button onclick="joinRoom()">Присоединиться</button>
+      </div>
+    </div>
   `;
+  document.getElementById('playerInfo').innerHTML = '';
 }
 
 function renderRoom() {
+  if (!room) return;
+  
   document.getElementById('app').innerHTML = `
-    <h2>Комната ${room.code}</h2>
-    <ul>
-      ${room.players.map(p => `<li>${p.name} (${p.chips})</li>`).join('')}
-    </ul>
-    <button onclick="startGame()">Начать игру</button>
-    <button onclick="leaveRoom()">Выйти</button>
+    <div class="game-board">
+      <div class="main-game">
+        <h2>Комната: <span style="color:#f1c40f">${room.code}</span></h2>
+        
+        <div class="status-bar">
+          <span>Игроков: <strong>${room.players.length}</strong></span>
+          <span>ID комнаты: <strong>${room.id}</strong></span>
+        </div>
+        
+        <h3>👥 Игроки в комнате</h3>
+        <ul class="player-list">
+          ${room.players.map((p, idx) => `
+            <li class="player-item">
+              <div class="player-info">
+                <span>
+                  ${p.name} 
+                  ${idx === 0 ? '<span class="badge badge-dealer">D</span>' : ''}
+                  <span class="badge" style="background:#${p.id === me.id ? '2ecc71' : '3498db'}">
+                    ${p.id === me.id ? 'Вы' : 'Игрок'}
+                  </span>
+                </span>
+                <span class="player-chips">${p.chips} фишек</span>
+              </div>
+            </li>
+          `).join('')}
+        </ul>
+        
+        <div class="actions">
+          <button onclick="startGame()" ${room.players.length < 2 ? 'disabled' : ''}>
+            🎯 Начать игру
+          </button>
+          <button onclick="leaveRoom()" style="background:#e74c3c">
+            🚪 Выйти из комнаты
+          </button>
+        </div>
+      </div>
+      
+      <div class="side-panel">
+        <h3>ℹ️ Информация</h3>
+        <p>Блайнды: ${room.smallBlind || 10}/${room.bigBlind || 20}</p>
+        <p>Минимальный стек: ${room.minBuyin || 100}</p>
+        <p>Максимум игроков: ${room.maxPlayers || 9}</p>
+        
+        <h3>📋 Код комнаты</h3>
+        <div style="background:#2c3e50; padding:15px; border-radius:8px; text-align:center;">
+          <h2 style="margin:0; color:#f1c40f">${room.code}</h2>
+          <p>Поделитесь этим кодом с друзьями</p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  document.getElementById('playerInfo').innerHTML = `
+    <p>Вы: <strong>${me.name}</strong> | ID: ${me.id} | Фишки: ${me.chips}</p>
   `;
 }
 
 function renderGame(state) {
   lastState = state;
-
+  
+  const isMyTurn = state.currentPlayerId === me.id && !state.finished;
+  const stageNames = {
+    'preflop': 'Префлоп',
+    'flop': 'Флоп',
+    'turn': 'Тёрн',
+    'river': 'Ривер',
+    'showdown': 'Шоудаун'
+  };
+  
   document.getElementById('app').innerHTML = `
-    <h2>Игра</h2>
-    <p>Стадия: ${state.stage}</p>
-    <p>Банк: ${state.pot}</p>
+    <div class="game-board">
+      <div class="main-game">
+        <!-- Информация о текущем раунде -->
+        <div class="status-bar">
+          <span>Стадия: <strong class="stage-indicator">${stageNames[state.stage] || state.stage}</strong></span>
+          <span>Текущая ставка: <strong style="color:#e74c3c">${state.currentBet}</strong></span>
+          <span>Мин. рейз: <strong style="color:#f39c12">${state.minRaise || state.lastRaise || 20}</strong></span>
+        </div>
+        
+        <!-- Карты стола -->
+        <div class="community-cards">
+          <h3>Карты на столе</h3>
+          ${state.communityCards.length > 0 
+            ? state.communityCards.map(c => renderCard(c)).join('')
+            : '<p>Карты еще не выложены</p>'
+          }
+        </div>
+        
+        <!-- Информация о банках -->
+        <div class="pot-info">
+          <div>
+            <div>Основной банк</div>
+            <div class="pot-amount">${state.pot}</div>
+          </div>
+          ${state.sidePots && state.sidePots.length > 0 ? `
+            <div>
+              <div>Side Pots</div>
+              ${state.sidePots.map((pot, i) => `
+                <div class="side-pot">
+                  <small>Side Pot ${i+1}:</small>
+                  <div><strong>${pot.amount}</strong></div>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+        
+        <!-- Ваши карты -->
+        <div style="background:rgba(46,204,113,0.1); padding:15px; border-radius:8px; margin:15px 0;">
+          <h3>Ваши карты</h3>
+          ${myCards.length > 0 
+            ? myCards.map(c => renderCard(c)).join('')
+            : '<p>Загрузка карт...</p>'
+          }
+          ${myPrivateState ? `
+            <div style="margin-top:10px; font-size:0.9em;">
+              <span>Нужно поставить: <strong>${myPrivateState.toCall}</strong></span> |
+              <span>Мин. рейз: <strong>${myPrivateState.minRaiseAmount}</strong></span>
+            </div>
+          ` : ''}
+        </div>
+        
+        <!-- Игроки -->
+        <h3>Игроки за столом</h3>
+        <ul class="player-list">
+          ${state.players.map((p, idx) => {
+            const isCurrent = p.id === state.currentPlayerId;
+            const isDealer = idx === state.dealerIndex;
+            const isSB = idx === state.sbIndex;
+            const isBB = idx === state.bbIndex;
+            
+            return `
+              <li class="player-item ${isCurrent ? 'current-turn' : ''} ${p.folded ? 'folded' : ''}">
+                <div class="player-info">
+                  <div>
+                    <strong>${p.name}</strong>
+                    ${isDealer ? '<span class="badge badge-dealer">D</span>' : ''}
+                    ${isSB ? '<span class="badge badge-sb">SB</span>' : ''}
+                    ${isBB ? '<span class="badge badge-bb">BB</span>' : ''}
+                    ${p.allIn ? '<span class="badge badge-allin">ALL-IN</span>' : ''}
+                    ${p.folded ? '<span class="badge badge-folded">FOLD</span>' : ''}
+                    ${p.id === me.id ? '<span class="badge" style="background:#2ecc71">Вы</span>' : ''}
+                    ${isCurrent ? '<span style="color:#2ecc71"> ⮕ ХОДИТ</span>' : ''}
+                  </div>
+                  <div>
+                    <span class="player-chips">${p.chips}</span>
+                    ${p.bet > 0 ? `<span class="player-bet">+${p.bet}</span>` : ''}
+                  </div>
+                </div>
+                
+                ${(state.finished || p.folded) && p.showHand && p.showHand.length > 0 ? `
+                  <div style="margin-top:8px;">
+                    Карты: ${p.showHand.map(c => renderCard(c)).join('')}
+                    ${p.handRank ? `<small style="color:#95a5a6"> (${p.handRank})</small>` : ''}
+                  </div>
+                ` : ''}
+                
+                ${p.contributedToPot > 0 ? `
+                  <div style="font-size:0.8em; color:#95a5a6; margin-top:5px;">
+                    Вложил в банк: ${p.contributedToPot}
+                  </div>
+                ` : ''}
+              </li>
+            `;
+          }).join('')}
+        </ul>
+        
+        <!-- Кнопки действий -->
+        ${!state.finished && isMyTurn ? renderActionButtons() : ''}
+        
+        ${state.finished ? renderWinners(state) : ''}
+      </div>
+      
+      <!-- Боковая панель -->
+      <div class="side-panel">
+        <h3>🎮 Управление игрой</h3>
+        <div class="actions">
+          <button onclick="showDebugInfo()" class="debug-toggle">
+            ${showDebug ? 'Скрыть' : 'Показать'} Debug
+          </button>
+          ${state.finished ? `
+            <button onclick="newHand()" style="background:#9b59b6">
+              Новая раздача
+            </button>
+          ` : ''}
+        </div>
+        
+        <h3>📊 Состояние игры</h3>
+        <p>Стадия: <strong>${state.stage}</strong></p>
+        <p>Текущий игрок: <strong>${state.players.find(p => p.id === state.currentPlayerId)?.name || 'Нет'}</strong></p>
+        <p>Дилера: <strong>${state.players[state.dealerIndex]?.name || 'Нет'}</strong></p>
+        <p>SB: <strong>${state.players[state.sbIndex]?.name || 'Нет'}</strong></p>
+        <p>BB: <strong>${state.players[state.bbIndex]?.name || 'Нет'}</strong></p>
+        
+        <h3>💰 Банки</h3>
+        <p>Основной банк: <strong>${state.pot}</strong></p>
+        <p>Side pots: <strong>${state.sidePots?.length || 0}</strong></p>
+        ${state.sidePots && state.sidePots.length > 0 ? `
+          <div style="font-size:0.9em;">
+            ${state.sidePots.map((pot, i) => `
+              <div>Side ${i+1}: ${pot.amount}</div>
+            `).join('')}
+          </div>
+        ` : ''}
+      </div>
+    </div>
+  `;
+  
+  // Обновляем инфо об игроке
+  document.getElementById('playerInfo').innerHTML = `
+    <div style="display:flex; justify-content:space-between;">
+      <div>
+        Вы: <strong>${me.name}</strong> | 
+        Фишки: <strong style="color:#f1c40f">${me.chips}</strong> |
+        ${myPrivateState ? `Поставить: ${myPrivateState.toCall}` : ''}
+      </div>
+      <div>
+        ${room ? `Комната: ${room.code}` : ''}
+      </div>
+    </div>
+  `;
+  
+  // Показываем debug информацию если включено
+  if (showDebug) {
+    document.getElementById('debugPanel').style.display = 'block';
+    document.getElementById('debugOutput').textContent = JSON.stringify(state, null, 2);
+  }
+}
 
-    <h3>Карты стола</h3>
-    ${state.communityCards.map(c =>
-      `<span class="card">${c.rank}${c.suit}</span>`
-    ).join('')}
+function renderCard(card) {
+  if (!card) return '';
+  const suit = card.suit.toLowerCase();
+  const suitSymbols = {
+    's': '♠',
+    'h': '♥', 
+    'd': '♦',
+    'c': '♣'
+  };
+  const suitClasses = {
+    's': 'spades',
+    'h': 'hearts',
+    'd': 'diamonds',
+    'c': 'clubs'
+  };
+  
+  return `
+    <span class="card ${suitClasses[suit] || ''}">
+      ${card.rank}${suitSymbols[suit] || suit}
+    </span>
+  `;
+}
 
-    <h3>Ваши карты</h3>
-    ${myCards.map(c =>
-      `<span class="card">${c.rank}${c.suit}</span>`
-    ).join('')}
-
-    <h3>Игроки</h3>
-    <ul>
-      ${state.players.map(p => `
-        <li>
-          ${p.name} (${p.chips})
-          ${p.id === state.currentPlayerId ? ' ⬅ ход' : ''}
-          ${state.finished
-            ? `<br>${p.showHand.map(c =>
-                `<span class="card">${c.rank}${c.suit}</span>`
-              ).join('')}`
-            : ''}
-        </li>
-      `).join('')}
-    </ul>
-
-    ${state.currentPlayerId === me.id && !state.finished ? `
-      <button onclick="check()">Чек</button>
-      <button onclick="call()">Колл</button>
-      <button onclick="fold()">Фолд</button>
-    ` : '<p>Ожидание хода...</p>'}
-
-    ${renderWinners(state)}
+function renderActionButtons() {
+  if (!myPrivateState) return '';
+  
+  const canCheck = myPrivateState.canCheck && myPrivateState.toCall === 0;
+  const canCall = myPrivateState.canCall && myPrivateState.toCall > 0;
+  const canBet = myPrivateState.canBet && myPrivateState.toCall === 0;
+  const canRaise = myPrivateState.canRaise;
+  
+  return `
+    <div class="actions">
+      <button onclick="fold()" class="fold" ${myPrivateState.isAllIn ? 'disabled' : ''}>
+        Фолд
+      </button>
+      
+      ${canCheck ? `
+        <button onclick="check()" class="call">
+          Чек
+        </button>
+      ` : ''}
+      
+      ${canCall ? `
+        <button onclick="call()" class="call">
+          Колл (${myPrivateState.toCall})
+        </button>
+      ` : ''}
+      
+      ${canBet ? `
+        <button onclick="promptBet()" class="raise">
+          Бет
+        </button>
+      ` : ''}
+      
+      ${canRaise ? `
+        <button onclick="promptRaise()" class="raise">
+          Рейз
+        </button>
+      ` : ''}
+      
+      <button onclick="allIn()" class="allin" ${myPrivateState.isAllIn ? 'disabled' : ''}>
+        ALL-IN (${me.chips})
+      </button>
+    </div>
   `;
 }
 
 function renderWinners(state) {
   if (!state.finished || !state.winners?.length) return '';
-
+  
   return `
-    <div class="winner">
-      <h3>🏆 Победитель${state.winners.length > 1 ? 'и' : ''}</h3>
-      <p><strong>Комбинация:</strong> ${state.winningHandName}</p>
-      <ul>
-        ${state.winners.map(w => `
-          <li><strong>${w.name}</strong></li>
-        `).join('')}
-      </ul>
+    <div class="winner-section">
+      <h2>🏆 ПОБЕДИТЕЛЬ${state.winners.length > 1 ? 'И' : ''} 🏆</h2>
+      <p><strong>Лучшая комбинация:</strong> ${state.winningHandName || 'Не определено'}</p>
+      
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; margin: 20px 0;">
+        ${state.winners.map(winner => {
+          const player = state.players.find(p => p.id === winner.id);
+          return `
+            <div style="background:rgba(255,255,255,0.1); padding:15px; border-radius:8px;">
+              <h3 style="margin-top:0;">${player?.name || winner.name}</h3>
+              ${player?.handRank ? `<p>Комбинация: <strong>${player.handRank}</strong></p>` : ''}
+              <p>Выигрыш: <strong style="color:#f1c40f">???</strong></p>
+            </div>
+          `;
+        }).join('')}
+      </div>
+      
+      <p style="font-size:0.9em; opacity:0.8;">Раунд завершен. Ожидайте новую раздачу...</p>
     </div>
   `;
 }
@@ -140,17 +685,30 @@ function createRoom() {
 
 function joinRoom() {
   const code = document.getElementById('code').value.trim();
+  if (!code) {
+    alert('Введите код комнаты');
+    return;
+  }
   socket.emit('join_room', { code, user: me });
 }
 
 function leaveRoom() {
+  if (!room) return;
   socket.emit('leave_room', { code: room.code, playerId: me.id });
   room = null;
+  myCards = [];
+  myPrivateState = null;
   renderLobby();
 }
 
 function startGame() {
+  if (!room) return;
   socket.emit('start_game', { code: room.code });
+}
+
+function newHand() {
+  if (!room) return;
+  socket.emit('new_hand', { code: room.code });
 }
 
 function check() {
@@ -170,6 +728,7 @@ function call() {
 }
 
 function fold() {
+  if (!confirm('Вы уверены, что хотите сбросить карты?')) return;
   socket.emit('player_action', {
     code: room.code,
     playerId: me.id,
@@ -177,28 +736,89 @@ function fold() {
   });
 }
 
+function allIn() {
+  if (!confirm(`Пойти ALL-IN на ${me.chips} фишек?`)) return;
+  socket.emit('player_action', {
+    code: room.code,
+    playerId: me.id,
+    action: { type: 'allin' }
+  });
+}
+
+function promptBet() {
+  if (!myPrivateState) return;
+  const amount = prompt(`Введите сумму ставки (мин. ${myPrivateState.minBetAmount}):`, myPrivateState.minBetAmount);
+  if (amount && !isNaN(amount)) {
+    socket.emit('player_action', {
+      code: room.code,
+      playerId: me.id,
+      action: { type: 'bet', amount: parseInt(amount) }
+    });
+  }
+}
+
+function promptRaise() {
+  if (!myPrivateState) return;
+  const minRaise = myPrivateState.minRaiseAmount;
+  const maxRaise = myPrivateState.maxRaiseAmount;
+  const amount = prompt(`Введите сумму рейза (мин. ${minRaise}, макс. ${maxRaise}):`, minRaise);
+  if (amount && !isNaN(amount)) {
+    socket.emit('player_action', {
+      code: room.code,
+      playerId: me.id,
+      action: { type: 'raise', amount: parseInt(amount) }
+    });
+  }
+}
+
+function showDebugInfo() {
+  showDebug = !showDebug;
+  if (lastState) renderGame(lastState);
+}
+
 /* ---------- SOCKET EVENTS ---------- */
 
 socket.on('room_joined', r => {
   room = r;
+  me.chips = r.players.find(p => p.id === me.id)?.chips || me.chips;
   renderRoom();
 });
 
 socket.on('room_update', r => {
   room = r;
+  me.chips = r.players.find(p => p.id === me.id)?.chips || me.chips;
   if (!lastState) renderRoom();
 });
 
 socket.on('game_started', ({ publicState }) => {
-  socket.emit('get_my_cards', {
-    code: room.code,
-    playerId: me.id
-  });
+  myCards = [];
+  myPrivateState = null;
+  
+  // Запрашиваем свои карты
+  setTimeout(() => {
+    socket.emit('get_my_cards', {
+      code: room.code,
+      playerId: me.id
+    });
+  }, 500);
+  
   renderGame(publicState);
 });
 
 socket.on('game_update', state => {
   renderGame(state);
+  
+  // Обновляем мои фишки из состояния
+  const myPlayer = state.players.find(p => p.id === me.id);
+  if (myPlayer) {
+    me.chips = myPlayer.chips;
+  }
+  
+  // Запрашиваем приватное состояние
+  socket.emit('get_my_private_state', {
+    code: room.code,
+    playerId: me.id
+  });
 });
 
 socket.on('my_cards', cards => {
@@ -206,10 +826,21 @@ socket.on('my_cards', cards => {
   if (lastState) renderGame(lastState);
 });
 
-socket.on('error_msg', msg => alert(msg));
+socket.on('my_private_state', privateState => {
+  myPrivateState = privateState;
+  if (lastState) renderGame(lastState);
+});
 
+socket.on('error_msg', msg => {
+  alert('Ошибка: ' + msg);
+});
+
+socket.on('player_left', data => {
+  alert(`Игрок ${data.playerName} покинул комнату`);
+});
+
+// Инициализация
 renderLobby();
 </script>
-
 </body>
 </html>
