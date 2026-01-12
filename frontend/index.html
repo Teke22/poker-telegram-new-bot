@@ -12,17 +12,18 @@ body {
   background:#0b3d2e;
   color:#fff;
   font-family:Arial;
-  padding:20px;
+  padding:10px;
   margin:0;
 }
 button {
-  padding:10px 15px;
+  padding:12px 16px;
   margin:5px;
   border:none;
-  border-radius:5px;
+  border-radius:6px;
   cursor:pointer;
   font-weight:bold;
-  min-width:80px;
+  min-width:100px;
+  font-size:14px;
 }
 button:hover {
   opacity:0.9;
@@ -36,33 +37,25 @@ button:disabled {
   background:#fff;
   color:#000;
   padding:8px 10px;
-  margin:4px;
-  border-radius:6px;
+  margin:3px;
+  border-radius:5px;
   display:inline-block;
   font-weight:bold;
-  box-shadow:0 2px 4px rgba(0,0,0,0.2);
-}
-.box {
-  border:1px solid #2ecc71;
-  padding:15px;
-  margin:10px 0;
-  border-radius:8px;
-  background:rgba(0,0,0,0.2);
 }
 .status {
   padding:10px;
   background:#2c3e50;
   border-radius:5px;
-  margin-bottom:15px;
+  margin-bottom:10px;
   font-weight:bold;
 }
-.player {
+.player-row {
   padding:8px;
-  margin:5px 0;
+  margin:4px 0;
   background:rgba(255,255,255,0.1);
   border-radius:5px;
 }
-.current-player {
+.current-turn {
   background:rgba(46, 204, 113, 0.2);
   border-left:4px solid #2ecc71;
 }
@@ -72,22 +65,20 @@ button:disabled {
 .allin {
   color:#f39c12;
 }
-.bet-input {
-  padding:8px;
-  margin:5px;
-  width:80px;
-  border-radius:5px;
-  border:1px solid #ccc;
-}
-.actions {
-  display:flex;
-  flex-wrap:wrap;
-  gap:10px;
+.actions-box {
+  background:rgba(0,0,0,0.2);
+  padding:15px;
+  border-radius:8px;
   margin:15px 0;
+  border:1px solid #2ecc71;
 }
-.action-btn {
-  flex:1;
-  min-width:100px;
+.pot-info {
+  background:#34495e;
+  padding:10px;
+  border-radius:5px;
+  margin:10px 0;
+  display:flex;
+  justify-content:space-around;
 }
 .btn-fold { background:#e74c3c; color:white; }
 .btn-check { background:#27ae60; color:white; }
@@ -100,7 +91,7 @@ button:disabled {
 
 <body>
 
-<div id="status" class="status"></div>
+<div id="status" class="status">Загрузка...</div>
 <div id="app"></div>
 
 <script>
@@ -127,19 +118,17 @@ const socket = io({ transports: ['websocket'] });
 let room = null;
 let myCards = [];
 let gameState = null;
-let myPrivateState = null;
 
 // ============= UI FUNCTIONS =============
 
 function showLobby() {
   document.getElementById('app').innerHTML = `
-    <div class="box">
-      <h2>🎴 Poker Lobby</h2>
+    <div style="text-align:center;">
+      <h2>🎴 Poker</h2>
       <p>Ваш ID: ${me.id}</p>
-      <p>Фишки: ${me.chips}</p>
       
       <div style="margin:20px 0;">
-        <button onclick="createRoom()" style="background:#f39c12; padding:12px 20px; font-size:16px;">
+        <button onclick="createRoom()" style="background:#f39c12; padding:15px 25px; font-size:16px;">
           🎮 Создать комнату
         </button>
       </div>
@@ -160,31 +149,29 @@ function showRoom() {
   if (!room) return;
   
   document.getElementById('app').innerHTML = `
-    <div class="box">
-      <h2>🎯 Комната: ${room.code}</h2>
-      <p>Код для приглашения: <strong>${room.code}</strong></p>
-      
-      <h3>👥 Игроки (${room.players.length})</h3>
-      ${room.players.map(p => `
-        <div class="player">
-          ${p.name} - 💰 ${p.chips} фишек
-          ${p.id === me.id ? ' (Вы)' : ''}
-        </div>
-      `).join('')}
-      
-      <div style="margin-top:20px;">
-        ${room.players.length >= 2 ? `
-          <button onclick="startGame()" style="background:#27ae60; padding:12px 24px; font-size:16px;">
-            🎯 Начать игру
-          </button>
-        ` : `
-          <p>⏳ Ожидаем второго игрока...</p>
-        `}
-        
-        <button onclick="leaveRoom()" style="background:#e74c3c; margin-left:10px;">
-          🚪 Выйти
-        </button>
+    <h2>🎯 Комната: ${room.code}</h2>
+    <p>Код для приглашения: <strong>${room.code}</strong></p>
+    
+    <h3>👥 Игроки (${room.players.length})</h3>
+    ${room.players.map(p => `
+      <div class="player-row">
+        ${p.name} - 💰 ${p.chips} фишек
+        ${p.id === me.id ? ' (Вы)' : ''}
       </div>
+    `).join('')}
+    
+    <div style="margin-top:20px;">
+      ${room.players.length >= 2 ? `
+        <button onclick="startGame()" style="background:#27ae60; padding:12px 24px;">
+          🎯 Начать игру
+        </button>
+      ` : `
+        <p>⏳ Ожидаем второго игрока...</p>
+      `}
+      
+      <button onclick="leaveRoom()" style="background:#e74c3c;">
+        🚪 Выйти
+      </button>
     </div>
   `;
   updateStatus(`Вы в комнате ${room.code}`);
@@ -202,25 +189,20 @@ function showGame() {
   }
   
   document.getElementById('app').innerHTML = `
-    <div class="box">
-      <h2>🎮 Игра</h2>
-      <div style="display:flex; justify-content:space-between; margin-bottom:15px;">
-        <div>
-          <strong>Стадия:</strong> ${getStageName(gameState.stage)}<br>
-          <strong>Банк:</strong> ${gameState.pot}<br>
-          ${gameState.sidePots?.length > 0 ? `
-            <strong>Side pots:</strong> ${gameState.sidePots.length}<br>
-          ` : ''}
-        </div>
-        <div>
-          <strong>Текущая ставка:</strong> ${gameState.currentBet}<br>
-          <strong>Мин. рейз:</strong> ${gameState.minRaise || 20}<br>
-          <strong>Ходит:</strong> ${gameState.players.find(p => p.id === gameState.currentPlayerId)?.name || '?'}
-        </div>
+    <h2>🎮 Игра</h2>
+    
+    <div class="pot-info">
+      <div>
+        <div><strong>Стадия:</strong> ${getStageName(gameState.stage)}</div>
+        <div><strong>Банк:</strong> ${gameState.pot}</div>
+      </div>
+      <div>
+        <div><strong>Текущая ставка:</strong> ${gameState.currentBet}</div>
+        <div><strong>Ходит:</strong> ${gameState.players.find(p => p.id === gameState.currentPlayerId)?.name || '?'}</div>
       </div>
     </div>
     
-    <div class="box">
+    <div>
       <h3>📊 Карты стола</h3>
       ${gameState.communityCards.length > 0 
         ? gameState.communityCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')
@@ -228,21 +210,15 @@ function showGame() {
       }
     </div>
     
-    <div class="box">
+    <div>
       <h3>🃏 Ваши карты</h3>
       ${myCards.length > 0 
         ? myCards.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')
         : '<p>Загрузка карт...</p>'
       }
-      ${myPrivateState ? `
-        <div style="margin-top:10px; font-size:0.9em;">
-          <strong>Нужно поставить:</strong> ${myPrivateState.toCall || 0}<br>
-          <strong>Фишек осталось:</strong> ${myPrivateState.chips || 0}
-        </div>
-      ` : ''}
     </div>
     
-    <div class="box">
+    <div>
       <h3>👥 Игроки за столом</h3>
       ${gameState.players.map(p => {
         const isCurrent = p.id === gameState.currentPlayerId;
@@ -251,11 +227,11 @@ function showGame() {
         const isBB = gameState.players.indexOf(p) === gameState.bbIndex;
         
         return `
-          <div class="player ${isCurrent ? 'current-player' : ''} ${p.folded ? 'folded' : ''}">
+          <div class="player-row ${isCurrent ? 'current-turn' : ''} ${p.folded ? 'folded' : ''}">
             <div style="display:flex; justify-content:space-between;">
               <div>
-                <strong>${p.name}</strong>
-                ${p.id === me.id ? ' (Вы)' : ''}
+                ${p.id === me.id ? '👤 ' : ''}
+                ${p.name}
                 ${isDealer ? ' 🃏' : ''}
                 ${isSB ? ' SB' : ''}
                 ${isBB ? ' BB' : ''}
@@ -268,11 +244,6 @@ function showGame() {
                 ${p.bet > 0 ? `<span style="color:#f39c12;"> (+${p.bet})</span>` : ''}
               </div>
             </div>
-            ${(gameState.finished || p.folded) && p.showHand && p.showHand.length > 0 ? `
-              <div style="margin-top:5px;">
-                Карты: ${p.showHand.map(c => `<span class="card">${c.rank}${c.suit}</span>`).join('')}
-              </div>
-            ` : ''}
           </div>
         `;
       }).join('')}
@@ -283,12 +254,12 @@ function showGame() {
     
     ${gameState.finished ? renderWinners() : ''}
     
-    <div style="margin-top:20px; text-align:center;">
+    <div style="margin-top:20px;">
       <button onclick="leaveRoom()" style="background:#e74c3c;">
         🚪 Выйти из комнаты
       </button>
       ${gameState.finished ? `
-        <button onclick="requestNewHand()" style="background:#27ae60; margin-left:10px;">
+        <button onclick="startNewHand()" style="background:#27ae60; margin-left:10px;">
           🃏 Новая раздача
         </button>
       ` : ''}
@@ -298,8 +269,7 @@ function showGame() {
     <div id="betDialog" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); 
          background:#2c3e50; padding:20px; border-radius:10px; z-index:1000; box-shadow:0 0 20px rgba(0,0,0,0.5);">
       <h3 id="dialogTitle">Сделать ставку</h3>
-      <p>Минимальная сумма: <span id="minAmount">20</span></p>
-      <p>Ваши фишки: <span id="maxAmount">${me.chips}</span></p>
+      <p id="dialogInfo">Информация</p>
       <input type="number" id="amountInput" value="20" style="padding:10px; width:150px; font-size:16px;">
       <div style="margin-top:15px;">
         <button onclick="submitBet()" style="background:#27ae60; padding:10px 20px;">Подтвердить</button>
@@ -316,77 +286,111 @@ function showGame() {
   } else {
     updateStatus(`⏳ Ходит: ${gameState.players.find(p => p.id === gameState.currentPlayerId)?.name || '...'}`);
   }
+  
+  // Если наша очередь, обновляем действия
+  if (isMyTurn) {
+    updateActions();
+  }
 }
 
 function renderActions() {
-  if (!myPrivateState) {
-    return '<div class="box"><p>Загрузка доступных действий...</p></div>';
-  }
-  
-  const toCall = myPrivateState.toCall || 0;
-  const canCheck = myPrivateState.canCheck && toCall === 0;
-  const canCall = myPrivateState.canCall && toCall > 0;
-  const canBet = myPrivateState.canBet && toCall === 0;
-  const canRaise = myPrivateState.canRaise;
-  const isAllIn = myPrivateState.isAllIn;
-  
-  console.log('Action state:', { toCall, canCheck, canCall, canBet, canRaise, isAllIn, myPrivateState });
-  
+  // Базовая версия пока загружается
   return `
-    <div class="box">
+    <div class="actions-box">
       <h3>🎯 Ваш ход</h3>
-      ${toCall > 0 ? `<p>Нужно поставить: <strong>${toCall}</strong> чтобы коллировать</p>` : ''}
-      
-      <div class="actions">
-        <!-- Фолд всегда доступен если не all-in -->
-        <button onclick="fold()" class="action-btn btn-fold" ${isAllIn ? 'disabled' : ''}>
-          ❌ Фолд
-        </button>
-        
-        <!-- Чек доступен если не нужно коллить -->
-        ${canCheck ? `
-          <button onclick="check()" class="action-btn btn-check">
-            ✓ Чек
-          </button>
-        ` : ''}
-        
-        <!-- Колл доступен если нужно поставить -->
-        ${canCall ? `
-          <button onclick="call()" class="action-btn btn-call">
-            📞 Колл (${toCall})
-          </button>
-        ` : ''}
-        
-        <!-- Бет доступен только если никто еще не ставил на этой улице -->
-        ${canBet ? `
-          <button onclick="showBetDialog('bet')" class="action-btn btn-bet">
-            💰 Бет
-          </button>
-        ` : ''}
-        
-        <!-- Рейз доступен если у игрока есть фишки для рейза -->
-        ${canRaise ? `
-          <button onclick="showBetDialog('raise')" class="action-btn btn-raise">
-            📈 Рейз
-          </button>
-        ` : ''}
-        
-        <!-- All-in доступен если есть фишки -->
-        ${!isAllIn && myPrivateState.chips > 0 ? `
-          <button onclick="allIn()" class="action-btn btn-allin">
-            ⚡ ALL-IN (${myPrivateState.chips})
-          </button>
-        ` : ''}
+      <div id="actionsContainer">
+        <p>Загрузка доступных действий...</p>
       </div>
     </div>
   `;
+}
+
+function updateActions() {
+  if (!gameState) return;
+  
+  const meInGame = gameState.players.find(p => p.id === me.id);
+  if (!meInGame) return;
+  
+  const toCall = gameState.currentBet - meInGame.bet;
+  const canCheck = toCall === 0;
+  const canCall = toCall > 0 && meInGame.chips >= toCall;
+  const canBet = gameState.currentBet === 0 && meInGame.chips > 0;
+  const canRaise = meInGame.chips > toCall && toCall < meInGame.chips;
+  const isAllIn = meInGame.allIn;
+  
+  console.log('Action calculation:', {
+    toCall,
+    canCheck,
+    canCall,
+    canBet,
+    canRaise,
+    isAllIn,
+    currentBet: gameState.currentBet,
+    myBet: meInGame.bet,
+    myChips: meInGame.chips
+  });
+  
+  const actionsContainer = document.getElementById('actionsContainer');
+  if (!actionsContainer) return;
+  
+  let actionsHTML = '';
+  
+  if (toCall > 0) {
+    actionsHTML += `<p>Нужно поставить: <strong>${toCall}</strong> чтобы коллировать</p>`;
+  }
+  
+  actionsHTML += `
+    <div style="display:flex; flex-wrap:wrap; gap:8px;">
+      <!-- Фолд всегда доступен если не all-in -->
+      <button onclick="fold()" class="btn-fold" ${isAllIn ? 'disabled' : ''}>
+        ❌ Фолд
+      </button>
+      
+      <!-- Чек доступен если не нужно коллить -->
+      ${canCheck ? `
+        <button onclick="check()" class="btn-check">
+          ✓ Чек
+        </button>
+      ` : ''}
+      
+      <!-- Колл доступен если нужно поставить -->
+      ${canCall ? `
+        <button onclick="call()" class="btn-call">
+          📞 Колл (${toCall})
+        </button>
+      ` : ''}
+      
+      <!-- Бет доступен только если никто еще не ставил на этой улице -->
+      ${canBet ? `
+        <button onclick="showBetDialog('bet')" class="btn-bet">
+          💰 Бет
+        </button>
+      ` : ''}
+      
+      <!-- Рейз доступен если у игрока есть фишки для рейза -->
+      ${canRaise ? `
+        <button onclick="showBetDialog('raise')" class="btn-raise">
+          📈 Рейз
+        </button>
+      ` : ''}
+      
+      <!-- All-in доступен если есть фишки -->
+      ${!isAllIn && meInGame.chips > 0 ? `
+        <button onclick="allIn()" class="btn-allin">
+          ⚡ ALL-IN (${meInGame.chips})
+        </button>
+      ` : ''}
+    </div>
+  `;
+  
+  actionsContainer.innerHTML = actionsHTML;
 }
 
 function renderWinners() {
   if (!gameState.winners || gameState.winners.length === 0) return '';
   
   return `
-    <div class="box" style="background:rgba(46, 204, 113, 0.2); border-color:#2ecc71;">
+    <div class="actions-box" style="background:rgba(46, 204, 113, 0.2);">
       <h2>🏆 Победители</h2>
       <p><strong>Лучшая комбинация:</strong> ${gameState.winningHandName || 'Не определено'}</p>
       
@@ -394,7 +398,7 @@ function renderWinners() {
         ${gameState.winners.map(winner => {
           const player = gameState.players.find(p => p.id === winner.id);
           return `
-            <div class="player" style="background:rgba(46, 204, 113, 0.3);">
+            <div class="player-row" style="background:rgba(46, 204, 113, 0.3);">
               <strong>${player?.name || winner.name}</strong>
               ${player?.handRank ? `<br>Комбинация: ${player.handRank}` : ''}
             </div>
@@ -442,7 +446,6 @@ function leaveRoom() {
     room = null;
     gameState = null;
     myCards = [];
-    myPrivateState = null;
     showLobby();
   }
 }
@@ -452,7 +455,7 @@ function startGame() {
   socket.emit('start_game', { code: room.code });
 }
 
-function requestNewHand() {
+function startNewHand() {
   if (!room) return;
   socket.emit('start_game', { code: room.code });
 }
@@ -484,7 +487,10 @@ function call() {
 }
 
 function allIn() {
-  if (!confirm(`Пойти ALL-IN на ${myPrivateState?.chips || me.chips} фишек?`)) return;
+  const meInGame = gameState?.players.find(p => p.id === me.id);
+  if (!meInGame) return;
+  
+  if (!confirm(`Пойти ALL-IN на ${meInGame.chips} фишек?`)) return;
   socket.emit('player_action', {
     code: room.code,
     playerId: me.id,
@@ -497,26 +503,37 @@ let currentDialogType = 'bet';
 
 function showBetDialog(type) {
   currentDialogType = type;
+  const meInGame = gameState?.players.find(p => p.id === me.id);
+  if (!meInGame) return;
+  
   const dialog = document.getElementById('betDialog');
   const overlay = document.getElementById('overlay');
   const input = document.getElementById('amountInput');
+  const info = document.getElementById('dialogInfo');
+  const title = document.getElementById('dialogTitle');
   
   if (type === 'bet') {
-    document.getElementById('dialogTitle').textContent = 'Сделать ставку';
-    document.getElementById('minAmount').textContent = '20';
+    title.textContent = 'Сделать ставку';
+    info.innerHTML = `
+      Минимальная ставка: <strong>20</strong><br>
+      Ваши фишки: <strong>${meInGame.chips}</strong>
+    `;
     input.min = 20;
-    input.max = myPrivateState?.chips || me.chips;
-    input.value = 20;
+    input.max = meInGame.chips;
+    input.value = Math.max(20, Math.min(100, meInGame.chips));
   } else {
-    document.getElementById('dialogTitle').textContent = 'Сделать рейз';
-    const minRaise = myPrivateState?.minRaiseAmount || (gameState.currentBet + gameState.minRaise);
-    document.getElementById('minAmount').textContent = minRaise;
+    title.textContent = 'Сделать рейз';
+    const minRaise = gameState.currentBet + gameState.minRaise;
+    info.innerHTML = `
+      Текущая ставка: <strong>${gameState.currentBet}</strong><br>
+      Минимальный рейз: <strong>${minRaise}</strong><br>
+      Ваши фишки: <strong>${meInGame.chips}</strong>
+    `;
     input.min = minRaise;
-    input.max = myPrivateState?.maxRaiseAmount || (myPrivateState?.chips || me.chips);
+    input.max = meInGame.chips + meInGame.bet;
     input.value = minRaise;
   }
   
-  document.getElementById('maxAmount').textContent = myPrivateState?.chips || me.chips;
   dialog.style.display = 'block';
   overlay.style.display = 'block';
 }
@@ -556,22 +573,12 @@ socket.on('disconnect', () => {
 socket.on('room_joined', (r) => {
   console.log('Room joined:', r);
   room = r;
-  // Обновляем наши фишки из комнаты
-  const myPlayer = r.players.find(p => p.id === me.id);
-  if (myPlayer) {
-    me.chips = myPlayer.chips;
-  }
   showRoom();
 });
 
 socket.on('room_update', (r) => {
   console.log('Room updated:', r);
   room = r;
-  // Обновляем наши фишки
-  const myPlayer = r.players.find(p => p.id === me.id);
-  if (myPlayer) {
-    me.chips = myPlayer.chips;
-  }
   if (!gameState) {
     showRoom();
   }
@@ -581,7 +588,6 @@ socket.on('game_started', ({ publicState }) => {
   console.log('Game started:', publicState);
   gameState = publicState;
   myCards = [];
-  myPrivateState = null;
   
   // Запрашиваем свои карты
   setTimeout(() => {
@@ -591,51 +597,18 @@ socket.on('game_started', ({ publicState }) => {
     });
   }, 500);
   
-  // Запрашиваем приватное состояние
-  setTimeout(() => {
-    socket.emit('get_my_private_state', {
-      code: room.code,
-      playerId: me.id
-    });
-  }, 800);
-  
   showGame();
 });
 
 socket.on('game_update', (state) => {
   console.log('Game updated:', state);
   gameState = state;
-  
-  // Обновляем наши фишки
-  const myPlayer = state.players.find(p => p.id === me.id);
-  if (myPlayer) {
-    me.chips = myPlayer.chips;
-  }
-  
   showGame();
-  
-  // Если сейчас наш ход, запрашиваем приватное состояние
-  if (state.currentPlayerId === me.id && !state.finished) {
-    setTimeout(() => {
-      socket.emit('get_my_private_state', {
-        code: room.code,
-        playerId: me.id
-      });
-    }, 300);
-  }
 });
 
 socket.on('my_cards', (cards) => {
   console.log('Received my cards:', cards);
   myCards = cards;
-  if (gameState) {
-    showGame();
-  }
-});
-
-socket.on('my_private_state', (privateState) => {
-  console.log('Received private state:', privateState);
-  myPrivateState = privateState;
   if (gameState) {
     showGame();
   }
