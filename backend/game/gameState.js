@@ -486,45 +486,120 @@ class GameState {
   }
 
   _getHandDescription(hand) {
-    if (!hand) return '';
-    
-    const name = hand.name;
-    const descr = hand.descr || '';
-    
-    // Улучшаем читаемость описания комбинаций
-    const descriptions = {
-      'Straight Flush': 'Стрит-флеш',
-      'Four of a Kind': 'Каре',
-      'Full House': 'Фулл-хаус',
-      'Flush': 'Флеш',
-      'Straight': 'Стрит',
-      'Three of a Kind': 'Тройка',
-      'Two Pair': 'Две пары',
-      'Pair': 'Пара',
-      'High Card': 'Старшая карта'
-    };
-    
-    const russianName = descriptions[name] || name;
-    
-    // Упрощаем описание для русскоязычных пользователей
-    if (descr) {
-      const cleanDescr = descr
-        .replace(name + ': ', '')
-        .replace(/J/g, 'Валет')
-        .replace(/Q/g, 'Дама')
-        .replace(/K/g, 'Король')
-        .replace(/A/g, 'Туз')
-        .replace(/T/g, '10')
-        .replace(/s/g, '♠')
-        .replace(/h/g, '♥')
-        .replace(/d/g, '♦')
-        .replace(/c/g, '♣');
-      
-      return `${russianName} (${cleanDescr})`;
-    }
-    
-    return russianName;
+  if (!hand) return 'Старшая карта';
+  
+  const name = hand.name;
+  const descr = hand.descr || '';
+  
+  // Русские названия комбинаций
+  const russianNames = {
+    'Straight Flush': 'Стрит-флеш',
+    'Four of a Kind': 'Каре',
+    'Full House': 'Фулл-хаус',
+    'Flush': 'Флеш',
+    'Straight': 'Стрит',
+    'Three of a Kind': 'Тройка',
+    'Two Pair': 'Две пары',
+    'Pair': 'Пара',
+    'High Card': 'Старшая карта'
+  };
+  
+  const russianName = russianNames[name] || name;
+  
+  if (!descr) return russianName;
+  
+  // Улучшаем читаемость описания
+  let cleanDescr = descr;
+  
+  // Убираем префикс типа комбинации
+  if (cleanDescr.startsWith(`${name}: `)) {
+    cleanDescr = cleanDescr.substring(`${name}: `.length);
   }
+  
+  // Заменяем карты на русские названия
+  cleanDescr = cleanDescr
+    .replace(/J/g, 'Валет')
+    .replace(/Q/g, 'Дама')
+    .replace(/K/g, 'Король')
+    .replace(/A/g, 'Туз')
+    .replace(/T/g, '10');
+  
+  // Заменяем масти на символы
+  cleanDescr = cleanDescr
+    .replace(/s/g, '♠')
+    .replace(/h/g, '♥')
+    .replace(/d/g, '♦')
+    .replace(/c/g, '♣');
+  
+  // Убираем лишние символы и форматируем
+  cleanDescr = cleanDescr
+    .replace(/[,'"]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // Форматируем в зависимости от типа комбинации
+  switch (name) {
+    case 'Straight Flush':
+    case 'Flush':
+    case 'Straight':
+      // Для этих комбинаций показываем высшую карту
+      const highestCardMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣])/);
+      if (highestCardMatch) {
+        return `${russianName}, ${highestCardMatch[0]}`;
+      }
+      break;
+      
+    case 'Four of a Kind':
+      // Каре: четыре карты + кикер
+      const fourMatch = cleanDescr.match(/([AКQJВДКТ0-9]+)/g);
+      if (fourMatch && fourMatch.length >= 2) {
+        return `${russianName}, ${fourMatch[0]}`;
+      }
+      break;
+      
+    case 'Full House':
+      // Фулл-хаус: тройка + пара
+      const fhMatch = cleanDescr.match(/([AКQJВДКТ0-9]+)/g);
+      if (fhMatch && fhMatch.length >= 2) {
+        return `${russianName}, ${fhMatch[0]} и ${fhMatch[1]}`;
+      }
+      break;
+      
+    case 'Three of a Kind':
+      // Тройка + кикеры
+      const threeMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣]?)/g);
+      if (threeMatch && threeMatch.length >= 1) {
+        return `${russianName}, ${threeMatch[0]}`;
+      }
+      break;
+      
+    case 'Two Pair':
+      // Две пары + кикер
+      const twoPairMatch = cleanDescr.match(/([AКQJВДКТ0-9]+)/g);
+      if (twoPairMatch && twoPairMatch.length >= 2) {
+        return `${russianName}, ${twoPairMatch[0]} и ${twoPairMatch[1]}`;
+      }
+      break;
+      
+    case 'Pair':
+      // Пара + кикеры
+      const pairMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣]?)/);
+      if (pairMatch) {
+        return `${russianName}, ${pairMatch[0]}`;
+      }
+      break;
+      
+    case 'High Card':
+      // Старшая карта
+      const highCardMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣])/);
+      if (highCardMatch) {
+        return `${russianName}, ${highCardMatch[0]}`;
+      }
+      break;
+  }
+  
+  return cleanDescr ? `${russianName} (${cleanDescr})` : russianName;
+}
 
   _evaluateHand(player) {
     const allCards = [...player.hand, ...this.communityCards];
