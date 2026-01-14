@@ -115,7 +115,7 @@ function startNewHand(room) {
     return;
   }
 
-  // Отправляем приватные карты
+  // Send private cards
   room.players.forEach(p => {
     const socketId = userSockets[p.id];
     const privateState = room.game.getPlayerPrivateState(p.id);
@@ -123,14 +123,6 @@ function startNewHand(room) {
       io.to(socketId).emit('my_cards', privateState.hand);
     }
   });
-
-  // Отправляем доступные действия текущему игроку
-  const currentPlayerId = room.game.getPublicState().currentPlayerId;
-  const currentPlayerSocket = userSockets[currentPlayerId];
-  if (currentPlayerSocket) {
-    const availableActions = room.game.getAvailableActions(currentPlayerId);
-    io.to(currentPlayerSocket).emit('available_actions', availableActions);
-  }
 
   io.to(room.code).emit('game_started', {
     publicState: room.game.getPublicState()
@@ -242,38 +234,16 @@ io.on('connection', socket => {
     startNewHand(room);
   });
 
-  /* ---------- GAME ACTIONS ---------- */
+  /* ---------- GAME ---------- */
 
   socket.on('player_action', ({ code, playerId, action }) => {
     const room = rooms[code];
     if (!room || !room.game) return;
 
     try {
-      // Валидация действия перед выполнением
-      const validation = room.game.validateAction(playerId, action);
-      if (!validation.valid) {
-        socket.emit('error_msg', validation.error);
-        return;
-      }
-
-      // Выполняем действие
       room.game.playerAction(playerId, action);
-      
-      // Отправляем обновленное состояние игры всем
-      const publicState = room.game.getPublicState();
-      io.to(code).emit('game_update', publicState);
+      io.to(code).emit('game_update', room.game.getPublicState());
 
-      // Отправляем доступные действия новому текущему игроку
-      const currentPlayerId = publicState.currentPlayerId;
-      if (currentPlayerId && !publicState.finished) {
-        const currentPlayerSocket = userSockets[currentPlayerId];
-        if (currentPlayerSocket) {
-          const availableActions = room.game.getAvailableActions(currentPlayerId);
-          io.to(currentPlayerSocket).emit('available_actions', availableActions);
-        }
-      }
-
-      // Если игра завершена
       if (room.game.finished) {
         // Обновляем фишки игроков после игры
         room.players.forEach(p => {
@@ -286,7 +256,6 @@ io.on('connection', socket => {
           reason: 'finished'
         });
 
-        // Запускаем новую раздачу через 5 секунд
         setTimeout(() => startNewHand(room), config.NEXT_HAND_DELAY || 5000);
       }
     } catch (e) {
@@ -301,25 +270,6 @@ io.on('connection', socket => {
 
     const state = room.game.getPlayerPrivateState(playerId);
     if (state) socket.emit('my_cards', state.hand);
-  });
-
-  socket.on('get_available_actions', ({ code, playerId }) => {
-    const room = rooms[code];
-    if (!room || !room.game) return;
-
-    const availableActions = room.game.getAvailableActions(playerId);
-    socket.emit('available_actions', availableActions);
-  });
-
-  socket.on('validate_action', ({ code, playerId, action }, callback) => {
-    const room = rooms[code];
-    if (!room || !room.game) {
-      if (callback) callback({ valid: false, error: 'Game not found' });
-      return;
-    }
-
-    const validation = room.game.validateAction(playerId, action);
-    if (callback) callback(validation);
   });
 
   socket.on('leave_room', ({ code, playerId }) => {
@@ -362,42 +312,15 @@ io.on('connection', socket => {
 
     // Если игра идет, отправляем состояние игры
     if (room.game) {
-      const publicState = room.game.getPublicState();
-      socket.emit('game_update', publicState);
-      
+      socket.emit('game_update', room.game.getPublicState());
       const privateState = room.game.getPlayerPrivateState(user.id);
       if (privateState) {
         socket.emit('my_cards', privateState.hand);
         socket.emit('my_private_state', privateState);
-        
-        // Если сейчас ход этого игрока, отправляем доступные действия
-        if (publicState.currentPlayerId === user.id) {
-          const availableActions = room.game.getAvailableActions(user.id);
-          socket.emit('available_actions', availableActions);
-        }
       }
     } else {
       socket.emit('room_joined', room);
     }
-  });
-
-  // Обработчик для отладки состояния игры
-  socket.on('debug_state', ({ code }) => {
-    const room = rooms[code];
-    if (!room || !room.game) return;
-
-    console.log('=== DEBUG STATE ===');
-    room.game.debugState();
-    room.game.debugHands();
-    
-    socket.emit('debug_info', {
-      players: room.players.map(p => ({
-        id: p.id,
-        name: p.name,
-        chips: p.chips
-      })),
-      gameState: room.game.getPublicState()
-    });
   });
 });
 
