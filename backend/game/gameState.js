@@ -24,15 +24,13 @@ class GameState {
       lastHand: null,
       contributedToPot: 0,
       handRank: null,
+      handDescription: null,
+      best5Cards: null,
     }));
 
     this.deck = [];
     this.communityCards = [];
-    
-    // Упрощаем банк: храним только общий банк
-    this.totalPot = 0;           // Общий банк (сумма всех фишек в игре)
-    
-    // Дополнительные банки (для олл-инов) будем считать при необходимости
+    this.totalPot = 0;
     this.sidePots = [];
 
     this.stage = 'preflop';
@@ -48,6 +46,7 @@ class GameState {
     this.finished = false;
     this.winners = [];
     this.winningHandName = null;
+    this.winningHandDescription = null;
     this.handHistory = [];
   }
 
@@ -77,6 +76,7 @@ class GameState {
     this.finished = false;
     this.winners = [];
     this.winningHandName = null;
+    this.winningHandDescription = null;
 
     // Раздаем карты
     this.players.forEach(p => {
@@ -88,6 +88,8 @@ class GameState {
       p.acted = false;
       p.lastHand = null;
       p.handRank = null;
+      p.handDescription = null;
+      p.best5Cards = null;
     });
 
     // Ротация дилера
@@ -462,8 +464,10 @@ class GameState {
     // Оцениваем руки всех активных игроков
     console.log('Оценка комбинаций:');
     activePlayers.forEach(player => {
-      player.handRank = this._evaluateHand(player);
-      console.log(`${player.name}: ${player.handRank?.name} - ${JSON.stringify(player.hand)}`);
+      const handResult = this._evaluateHand(player);
+      player.handRank = handResult;
+      player.handDescription = this._getHandDescription(handResult);
+      console.log(`${player.name}: ${player.handDescription} - ${JSON.stringify(player.hand)}`);
     });
 
     // Распределяем фишки
@@ -471,12 +475,76 @@ class GameState {
 
     // Определяем победителей для отображения
     if (this.winners.length > 0) {
-      this.winningHandName = this.winners[0].handRank?.name || 'Win';
-      console.log(`Победитель: ${this.winners[0].name} с комбинацией ${this.winningHandName}`);
+      const winningPlayer = this.winners[0];
+      this.winningHandName = winningPlayer.handRank?.name || 'Win';
+      this.winningHandDescription = winningPlayer.handDescription || 'Выигрыш';
+      console.log(`Победитель: ${winningPlayer.name} с комбинацией ${this.winningHandName}`);
     }
 
     this.finished = true;
     console.log('Игра завершена');
+  }
+
+  _getHandDescription(hand) {
+    if (!hand) return '';
+    
+    const name = hand.name;
+    const descr = hand.descr || '';
+    
+    // Улучшаем читаемость описания комбинаций
+    const descriptions = {
+      'Straight Flush': 'Стрит-флеш',
+      'Four of a Kind': 'Каре',
+      'Full House': 'Фулл-хаус',
+      'Flush': 'Флеш',
+      'Straight': 'Стрит',
+      'Three of a Kind': 'Тройка',
+      'Two Pair': 'Две пары',
+      'Pair': 'Пара',
+      'High Card': 'Старшая карта'
+    };
+    
+    const russianName = descriptions[name] || name;
+    
+    // Упрощаем описание для русскоязычных пользователей
+    if (descr) {
+      const cleanDescr = descr
+        .replace(name + ': ', '')
+        .replace(/J/g, 'Валет')
+        .replace(/Q/g, 'Дама')
+        .replace(/K/g, 'Король')
+        .replace(/A/g, 'Туз')
+        .replace(/T/g, '10')
+        .replace(/s/g, '♠')
+        .replace(/h/g, '♥')
+        .replace(/d/g, '♦')
+        .replace(/c/g, '♣');
+      
+      return `${russianName} (${cleanDescr})`;
+    }
+    
+    return russianName;
+  }
+
+  _evaluateHand(player) {
+    const allCards = [...player.hand, ...this.communityCards];
+    
+    const cardStrings = allCards.map(card => {
+      const rank = card.rank;
+      const suit = card.suit.toLowerCase();
+      return rank + suit;
+    });
+
+    try {
+      return Hand.solve(cardStrings);
+    } catch (error) {
+      console.error('Error evaluating hand:', error);
+      console.error('Card strings:', cardStrings);
+      console.error('Player cards:', player.hand);
+      console.error('Community cards:', this.communityCards);
+      // В случае ошибки возвращаем базовую оценку
+      return { name: 'High Card', descr: 'Старшая карта' };
+    }
   }
 
   _distributePots() {
@@ -510,7 +578,7 @@ class GameState {
           const hands = eligiblePlayers.map(p => p.handRank);
           const winningHands = Hand.winners(hands);
           const winners = eligiblePlayers.filter(p => 
-            winningHands.includes(p.handRank)
+            winningHands.some(winningHand => winningHand.toString() === p.handRank.toString())
           );
           
           const share = Math.floor(sidePot.amount / winners.length);
@@ -537,7 +605,7 @@ class GameState {
       const hands = activePlayers.map(p => p.handRank);
       const winningHands = Hand.winners(hands);
       const winners = activePlayers.filter(p => 
-        winningHands.includes(p.handRank)
+        winningHands.some(winningHand => winningHand.toString() === p.handRank.toString())
       );
       
       const share = Math.floor(mainPotAmount / winners.length);
@@ -554,26 +622,6 @@ class GameState {
     }
   }
 
-  _evaluateHand(player) {
-    const allCards = [...player.hand, ...this.communityCards];
-    
-    const cardStrings = allCards.map(card => {
-      const rank = card.rank;
-      const suit = card.suit.toLowerCase();
-      return rank + suit;
-    });
-
-    try {
-      return Hand.solve(cardStrings);
-    } catch (error) {
-      console.error('Error evaluating hand:', error);
-      console.error('Card strings:', cardStrings);
-      console.error('Player cards:', player.hand);
-      console.error('Community cards:', this.communityCards);
-      throw error;
-    }
-  }
-
   _checkForEarlyWinner() {
     const activePlayers = this.players.filter(p => !p.folded);
     
@@ -581,7 +629,8 @@ class GameState {
       const winner = activePlayers[0];
       winner.chips += this.totalPot;
       this.winners = [winner];
-      this.winningHandName = 'Fold';
+      this.winningHandName = 'Победа по фолду';
+      this.winningHandDescription = 'Все оппоненты сбросили карты';
       this.finished = true;
       console.log(`Досрочный победитель: ${winner.name} получает ${this.totalPot}`);
       return true;
@@ -672,7 +721,7 @@ class GameState {
   getPublicState() {
     return {
       stage: this.stage,
-      pot: this.totalPot, // Отображаем только общий банк
+      pot: this.totalPot,
       totalPot: this.totalPot,
       currentBet: this.currentBet,
       minRaise: this.minRaise,
@@ -683,10 +732,12 @@ class GameState {
       currentPlayerId: this.players[this.currentPlayerIndex]?.id,
       finished: this.finished,
       winningHandName: this.winningHandName,
+      winningHandDescription: this.winningHandDescription,
       winners: this.winners.map(w => ({ 
         id: w.id, 
         name: w.name,
-        handRank: w.handRank?.name
+        handRank: w.handRank?.name,
+        handDescription: w.handDescription
       })),
       players: this.players.map(p => ({
         id: p.id,
@@ -697,7 +748,8 @@ class GameState {
         allIn: p.allIn,
         contributedToPot: p.contributedToPot,
         showHand: this.finished || p.folded ? p.hand : [],
-        handRank: this.finished ? p.handRank?.name : null
+        handRank: this.finished ? p.handRank?.name : null,
+        handDescription: this.finished ? p.handDescription : null
       }))
     };
   }
@@ -736,11 +788,10 @@ class GameState {
     
     this.players.forEach(player => {
       if (!player.folded) {
-        const handRank = this._evaluateHand(player);
         console.log(`Player ${player.name}:`);
         console.log('  Cards:', player.hand);
-        console.log('  Hand rank:', handRank?.name);
-        console.log('  Descr:', handRank?.descr);
+        console.log('  Hand rank:', player.handRank?.name);
+        console.log('  Hand desc:', player.handDescription);
       }
     });
     console.log('==================\n');
