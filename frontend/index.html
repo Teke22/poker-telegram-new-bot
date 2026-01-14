@@ -8,7 +8,6 @@
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 
 <style>
-/* Стили остаются такими же */
 body {
   background: linear-gradient(135deg, #0b3d2e 0%, #1a5c48 100%);
   color:#fff;
@@ -17,7 +16,275 @@ body {
   margin:0;
   min-height:100vh;
 }
-/* ... все остальные стили без изменений ... */
+button {
+  padding:12px 16px;
+  margin:5px;
+  border:none;
+  border-radius:8px;
+  cursor:pointer;
+  font-weight:bold;
+  min-width:100px;
+  font-size:14px;
+  transition:all 0.3s;
+  box-shadow:0 3px 6px rgba(0,0,0,0.2);
+}
+button:hover {
+  transform:translateY(-2px);
+  box-shadow:0 5px 10px rgba(0,0,0,0.3);
+}
+button:active {
+  transform:translateY(0);
+}
+button:disabled {
+  background:#666 !important;
+  cursor:not-allowed;
+  opacity:0.5;
+  transform:none !important;
+}
+.card {
+  display:inline-block;
+  width:50px;
+  height:70px;
+  margin:3px;
+  border-radius:6px;
+  position:relative;
+  font-weight:bold;
+  box-shadow:0 3px 6px rgba(0,0,0,0.3);
+  overflow:hidden;
+  transition:all 0.3s;
+}
+.card.winning-card {
+  transform:scale(1.15);
+  box-shadow:0 0 20px #f1c40f;
+  z-index:10;
+  animation:winningCardGlow 2s infinite alternate;
+}
+@keyframes winningCardGlow {
+  0% { box-shadow:0 0 10px #f1c40f; }
+  100% { box-shadow:0 0 25px #f1c40f; }
+}
+.card-red {
+  background:linear-gradient(145deg, #ffffff, #f0f0f0);
+  color:#d63031;
+  border:2px solid #d63031;
+}
+.card-black {
+  background:linear-gradient(145deg, #ffffff, #f0f0f0);
+  color:#2d3436;
+  border:2px solid #2d3436;
+}
+.card-rank {
+  position:absolute;
+  top:5px;
+  left:5px;
+  font-size:18px;
+  font-weight:bold;
+}
+.card-suit {
+  position:absolute;
+  bottom:5px;
+  right:5px;
+  font-size:20px;
+}
+.card-center {
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%, -50%);
+  font-size:28px;
+}
+.status {
+  padding:12px;
+  background:rgba(44, 62, 80, 0.8);
+  border-radius:8px;
+  margin-bottom:15px;
+  font-weight:bold;
+  text-align:center;
+  border-left:4px solid #2ecc71;
+}
+.player-row {
+  padding:10px;
+  margin:6px 0;
+  background:rgba(255,255,255,0.08);
+  border-radius:8px;
+  transition:all 0.3s;
+}
+.winner-row {
+  background:rgba(46, 204, 113, 0.3) !important;
+  border:2px solid #2ecc71;
+  animation:winnerPulse 2s infinite;
+}
+@keyframes winnerPulse {
+  0% { box-shadow:0 0 10px rgba(46, 204, 113, 0.5); }
+  50% { box-shadow:0 0 20px rgba(46, 204, 113, 0.8); }
+  100% { box-shadow:0 0 10px rgba(46, 204, 113, 0.5); }
+}
+.current-turn {
+  background:rgba(46, 204, 113, 0.25);
+  border-left:4px solid #2ecc71;
+  box-shadow:0 0 10px rgba(46, 204, 113, 0.3);
+}
+.folded {
+  opacity:0.5;
+  background:rgba(127, 140, 141, 0.2);
+}
+.allin-indicator {
+  color:#f39c12;
+  font-weight:bold;
+  animation:pulse 1.5s infinite;
+}
+@keyframes pulse {
+  0% { opacity:1; }
+  50% { opacity:0.6; }
+  100% { opacity:1; }
+}
+.actions-box {
+  background:rgba(0,0,0,0.25);
+  padding:20px;
+  border-radius:10px;
+  margin:20px 0;
+  border:2px solid #2ecc71;
+}
+.pot-info {
+  background:rgba(52, 73, 94, 0.8);
+  padding:15px;
+  border-radius:8px;
+  margin:15px 0;
+  display:flex;
+  justify-content:space-around;
+  text-align:center;
+  box-shadow:0 4px 8px rgba(0,0,0,0.2);
+}
+.pot-amount {
+  font-size:24px;
+  font-weight:bold;
+  color:#f1c40f;
+}
+.btn-fold { 
+  background:linear-gradient(145deg, #e74c3c, #c0392b);
+  color:white;
+}
+.btn-check { 
+  background:linear-gradient(145deg, #27ae60, #219653);
+  color:white;
+}
+.btn-call { 
+  background:linear-gradient(145deg, #3498db, #2980b9);
+  color:white;
+}
+.btn-bet { 
+  background:linear-gradient(145deg, #f39c12, #e67e22);
+  color:white;
+}
+.btn-raise { 
+  background:linear-gradient(145deg, #e67e22, #d35400);
+  color:white;
+}
+.btn-allin { 
+  background:linear-gradient(145deg, #9b59b6, #8e44ad);
+  color:white;
+}
+.badge {
+  display:inline-block;
+  padding:3px 8px;
+  border-radius:12px;
+  font-size:0.8em;
+  font-weight:bold;
+  margin-left:5px;
+}
+.badge-dealer { background:#9b59b6; }
+.badge-sb { background:#3498db; }
+.badge-bb { background:#e74c3c; }
+.badge-you { background:#2ecc71; }
+.badge-allin { background:#f39c12; }
+.badge-fold { background:#7f8c8d; }
+.badge-winner { 
+  background:linear-gradient(145deg, #f1c40f, #f39c12);
+  animation:badgeWinner 1.5s infinite alternate;
+}
+@keyframes badgeWinner {
+  0% { transform:scale(1); }
+  100% { transform:scale(1.1); }
+}
+.player-name {
+  font-weight:bold;
+  color:#3498db;
+}
+.you-name {
+  color:#2ecc71;
+  font-weight:bold;
+}
+.chips-amount {
+  color:#f1c40f;
+  font-weight:bold;
+}
+.bet-amount {
+  color:#e74c3c;
+  font-weight:bold;
+}
+.community-cards-container {
+  background:rgba(44, 62, 80, 0.6);
+  padding:15px;
+  border-radius:10px;
+  margin:15px 0;
+  text-align:center;
+}
+.my-cards-container {
+  background:rgba(46, 204, 113, 0.15);
+  padding:15px;
+  border-radius:10px;
+  margin:15px 0;
+  text-align:center;
+  border:2px dashed rgba(46, 204, 113, 0.5);
+}
+.players-container {
+  background:rgba(0,0,0,0.2);
+  padding:15px;
+  border-radius:10px;
+  margin:15px 0;
+}
+.stage-indicator {
+  display:inline-block;
+  padding:5px 15px;
+  background:#9b59b6;
+  border-radius:20px;
+  font-weight:bold;
+  margin-left:10px;
+}
+.winners-container {
+  background:linear-gradient(135deg, rgba(46, 204, 113, 0.3), rgba(39, 174, 96, 0.3));
+  padding:20px;
+  border-radius:10px;
+  margin:20px 0;
+  text-align:center;
+  animation:pulse 2s infinite;
+  border:2px solid #2ecc71;
+}
+.winning-hand-info {
+  background:rgba(241, 196, 15, 0.2);
+  padding:15px;
+  border-radius:10px;
+  margin:15px 0;
+  border:2px solid #f1c40f;
+}
+.combination-name {
+  font-size:20px;
+  color:#f1c40f;
+  font-weight:bold;
+  text-transform:uppercase;
+  margin:10px 0;
+}
+.winner-cards {
+  margin:15px 0;
+  padding:10px;
+  background:rgba(0,0,0,0.3);
+  border-radius:8px;
+}
+.winner-cards-label {
+  color:#bdc3c7;
+  font-size:14px;
+  margin-bottom:8px;
+}
 </style>
 </head>
 
@@ -55,7 +322,6 @@ let myCards = [];
 let gameState = null;
 let showWinnersTimeout = null;
 let winnersShown = false;
-let availableActions = null;
 
 // ============= UTILITY FUNCTIONS =============
 
@@ -371,13 +637,6 @@ function showGame() {
   // Обновляем статус
   if (isMyTurn) {
     updateStatus(`🎯 ВАШ ХОД! Стадия: ${stageName}`);
-    // Запрашиваем доступные действия у сервера
-    if (isMyTurn && !gameState.finished) {
-      socket.emit('get_available_actions', {
-        code: room.code,
-        playerId: me.id
-      });
-    }
   } else if (gameState.finished) {
     if (shouldShowWinners && !winnersShown) {
       updateStatus(`🏆 ШОУДАУН! Определение победителя...`);
@@ -392,6 +651,11 @@ function showGame() {
     }
   } else {
     updateStatus(`⏳ Ходит: ${getPlayerDisplayName(gameState.players.find(p => p.id === gameState.currentPlayerId) || {name: currentPlayerName})}`);
+  }
+  
+  // Если наша очередь, обновляем действия
+  if (isMyTurn) {
+    setTimeout(updateActions, 100);
   }
 }
 
@@ -414,34 +678,35 @@ function renderActions() {
     <div class="actions-box">
       <h3 style="margin-top:0; color:#f1c40f; text-align:center;">🎯 ВАШ ХОД</h3>
       <div id="actionsContainer" style="text-align:center;">
-        <p>Загрузка доступных действий...</p>
+        <p>Определение доступных действий...</p>
       </div>
     </div>
   `;
 }
 
-function updateAvailableActionsUI() {
-  if (!availableActions || !availableActions.available) {
-    const actionsContainer = document.getElementById('actionsContainer');
-    if (actionsContainer) {
-      actionsContainer.innerHTML = '<p>Нет доступных действий</p>';
-    }
-    return;
-  }
-
+function updateActions() {
+  if (!gameState) return;
+  
+  const meInGame = gameState.players.find(p => p.id === me.id);
+  if (!meInGame || meInGame.folded || meInGame.allIn) return;
+  
+  const toCall = gameState.currentBet - meInGame.bet;
+  const canCheck = toCall === 0;
+  const canCall = toCall > 0 && meInGame.chips >= toCall;
+  const canBet = gameState.currentBet === 0 && meInGame.chips > 0;
+  const canRaise = meInGame.chips > toCall && toCall < meInGame.chips;
+  const isAllIn = meInGame.allIn;
+  
   const actionsContainer = document.getElementById('actionsContainer');
   if (!actionsContainer) return;
-
-  const actions = availableActions.actions;
-  const amounts = availableActions.amounts;
-
+  
   let actionsHTML = '';
   
-  if (amounts.toCall > 0) {
+  if (toCall > 0) {
     actionsHTML += `
       <div style="background:rgba(231, 76, 60, 0.2); padding:10px; border-radius:8px; margin-bottom:15px;">
         <p style="margin:0; font-size:16px;">
-          Нужно поставить: <strong style="color:#e74c3c; font-size:18px;">${amounts.toCall}</strong> чтобы коллировать
+          Нужно поставить: <strong style="color:#e74c3c; font-size:18px;">${toCall}</strong> чтобы коллировать
         </p>
       </div>
     `;
@@ -449,45 +714,43 @@ function updateAvailableActionsUI() {
   
   actionsHTML += `
     <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
-      <!-- Фолд -->
-      ${actions.fold ? `
-        <button onclick="fold()" class="btn-fold" style="flex:1; min-width:120px;">
-          ❌ ФОЛД
-        </button>
-      ` : ''}
+      <!-- Фолд всегда доступен если не all-in -->
+      <button onclick="fold()" class="btn-fold" ${isAllIn ? 'disabled' : ''} style="flex:1; min-width:120px;">
+        ❌ ФОЛД
+      </button>
       
-      <!-- Чек -->
-      ${actions.check ? `
+      <!-- Чек доступен если не нужно коллить -->
+      ${canCheck ? `
         <button onclick="check()" class="btn-check" style="flex:1; min-width:120px;">
           ✓ ЧЕК
         </button>
       ` : ''}
       
-      <!-- Колл -->
-      ${actions.call ? `
+      <!-- Колл доступен если нужно поставить -->
+      ${canCall ? `
         <button onclick="call()" class="btn-call" style="flex:1; min-width:120px;">
-          📞 КОЛЛ (${amounts.toCall})
+          📞 КОЛЛ (${toCall})
         </button>
       ` : ''}
       
-      <!-- Бет -->
-      ${actions.bet ? `
+      <!-- Бет доступен только если никто еще не ставил на этой улице -->
+      ${canBet ? `
         <button onclick="showBetDialog('bet')" class="btn-bet" style="flex:1; min-width:120px;">
           💰 БЕТ
         </button>
       ` : ''}
       
-      <!-- Рейз -->
-      ${actions.raise ? `
+      <!-- Рейз доступен если у игрока есть фишки для рейза -->
+      ${canRaise ? `
         <button onclick="showBetDialog('raise')" class="btn-raise" style="flex:1; min-width:120px;">
           📈 РЕЙЗ
         </button>
       ` : ''}
       
-      <!-- All-in -->
-      ${actions.allin ? `
+      <!-- All-in доступен если есть фишки -->
+      ${!isAllIn && meInGame.chips > 0 ? `
         <button onclick="allIn()" class="btn-allin" style="flex:1; min-width:120px;">
-          ⚡ ALL-IN (${amounts.allin})
+          ⚡ ALL-IN (${meInGame.chips})
         </button>
       ` : ''}
     </div>
@@ -567,7 +830,6 @@ function leaveRoom() {
     room = null;
     gameState = null;
     myCards = [];
-    availableActions = null;
     winnersShown = false;
     clearTimeout(showWinnersTimeout);
     showLobby();
@@ -577,7 +839,6 @@ function leaveRoom() {
 function startGame() {
   if (!room) return;
   winnersShown = false;
-  availableActions = null;
   clearTimeout(showWinnersTimeout);
   socket.emit('start_game', { code: room.code });
   updateStatus('Запуск игры...');
@@ -586,7 +847,6 @@ function startGame() {
 function startNewHand() {
   if (!room) return;
   winnersShown = false;
-  availableActions = null;
   clearTimeout(showWinnersTimeout);
   socket.emit('start_game', { code: room.code });
   updateStatus('Новая раздача...');
@@ -644,32 +904,30 @@ function showBetDialog(type) {
   const info = document.getElementById('dialogInfo');
   const title = document.getElementById('dialogTitle');
   
-  if (!availableActions) return;
-  
   if (type === 'bet') {
     title.textContent = 'СДЕЛАТЬ СТАВКУ';
     info.innerHTML = `
       <div style="color:#bdc3c7;">
-        <div>Минимальная ставка: <strong style="color:#f39c12;">${availableActions.amounts.minBet}</strong></div>
+        <div>Минимальная ставка: <strong style="color:#f39c12;">20</strong></div>
         <div>Ваши фишки: <strong style="color:#2ecc71;">${meInGame.chips}</strong></div>
       </div>
     `;
-    input.min = availableActions.amounts.minBet;
-    input.max = availableActions.amounts.maxRaise;
-    input.value = Math.max(availableActions.amounts.minBet, 
-                         Math.min(100, meInGame.chips));
+    input.min = 20;
+    input.max = meInGame.chips;
+    input.value = Math.max(20, Math.min(100, meInGame.chips));
   } else {
     title.textContent = 'СДЕЛАТЬ РЕЙЗ';
+    const minRaise = gameState.currentBet + gameState.minRaise;
     info.innerHTML = `
       <div style="color:#bdc3c7;">
         <div>Текущая ставка: <strong style="color:#e74c3c;">${gameState.currentBet}</strong></div>
-        <div>Минимальный рейз: <strong style="color:#f39c12;">${availableActions.amounts.minRaise}</strong></div>
+        <div>Минимальный рейз: <strong style="color:#f39c12;">${minRaise}</strong></div>
         <div>Ваши фишки: <strong style="color:#2ecc71;">${meInGame.chips}</strong></div>
       </div>
     `;
-    input.min = availableActions.amounts.minRaise;
-    input.max = availableActions.amounts.maxRaise;
-    input.value = availableActions.amounts.minRaise;
+    input.min = minRaise;
+    input.max = meInGame.chips + meInGame.bet;
+    input.value = minRaise;
   }
   
   dialog.style.display = 'block';
@@ -727,7 +985,6 @@ socket.on('game_started', ({ publicState }) => {
   console.log('Game started:', publicState);
   gameState = publicState;
   myCards = [];
-  availableActions = null;
   winnersShown = false;
   clearTimeout(showWinnersTimeout);
   
@@ -753,12 +1010,6 @@ socket.on('my_cards', (cards) => {
   if (gameState) {
     showGame();
   }
-});
-
-socket.on('available_actions', (actions) => {
-  console.log('Received available actions:', actions);
-  availableActions = actions;
-  updateAvailableActionsUI();
 });
 
 socket.on('error_msg', (msg) => {

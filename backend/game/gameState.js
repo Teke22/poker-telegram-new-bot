@@ -24,7 +24,6 @@ class GameState {
       lastHand: null,
       contributedToPot: 0,
       handRank: null,
-      showHand: false
     }));
 
     this.deck = [];
@@ -85,7 +84,6 @@ class GameState {
       p.acted = false;
       p.lastHand = null;
       p.handRank = null;
-      p.showHand = false;
     });
 
     // Ротация дилера
@@ -454,7 +452,6 @@ class GameState {
     console.log('Оценка комбинаций:');
     activePlayers.forEach(player => {
       player.handRank = this._evaluateHand(player);
-      player.showHand = true; // Показываем карты всем
       console.log(`${player.name}: ${player.handRank?.name} - ${JSON.stringify(player.hand)}`);
     });
 
@@ -645,110 +642,7 @@ class GameState {
     }
   }
 
-  /* ================= PUBLIC API ================= */
-
-  // Метод для получения доступных действий игрока
-  getAvailableActions(playerId) {
-    const player = this.players.find(p => p.id === playerId);
-    if (!player) {
-      return { available: false, reason: 'Player not found' };
-    }
-
-    if (this.finished) {
-      return { available: false, reason: 'Game finished' };
-    }
-
-    if (this.currentPlayerId !== playerId) {
-      return { available: false, reason: 'Not your turn' };
-    }
-
-    if (player.folded) {
-      return { available: false, reason: 'Player folded' };
-    }
-
-    if (player.allIn) {
-      return { available: false, reason: 'Player all-in' };
-    }
-
-    const toCall = this.currentBet - player.bet;
-    const minBet = BIG_BLIND;
-    const minRaise = Math.max(this.currentBet + this.minRaise, BIG_BLIND);
-    const maxRaise = player.chips + player.bet;
-
-    return {
-      available: true,
-      actions: {
-        fold: true,
-        check: toCall === 0,
-        call: toCall > 0 && toCall <= player.chips,
-        bet: this.currentBet === 0 && player.chips >= minBet,
-        raise: player.chips > 0 && toCall < player.chips,
-        allin: player.chips > 0
-      },
-      amounts: {
-        toCall: toCall,
-        minBet: minBet,
-        minRaise: Math.min(minRaise, maxRaise),
-        maxRaise: maxRaise,
-        allin: player.chips
-      }
-    };
-  }
-
-  // Проверка валидности действия
-  validateAction(playerId, action) {
-    const available = this.getAvailableActions(playerId);
-    if (!available.available) {
-      return { valid: false, error: available.reason };
-    }
-
-    if (typeof action === 'string') action = { type: action };
-
-    switch (action.type) {
-      case 'fold':
-      case 'check':
-        return { valid: true };
-        
-      case 'call':
-        if (!available.actions.call) {
-          return { valid: false, error: 'Cannot call' };
-        }
-        return { valid: true };
-        
-      case 'bet':
-        if (!available.actions.bet) {
-          return { valid: false, error: 'Cannot bet' };
-        }
-        if (action.amount < available.amounts.minBet) {
-          return { valid: false, error: `Minimum bet is ${available.amounts.minBet}` };
-        }
-        if (action.amount > available.amounts.maxRaise) {
-          return { valid: false, error: 'Not enough chips' };
-        }
-        return { valid: true };
-        
-      case 'raise':
-        if (!available.actions.raise) {
-          return { valid: false, error: 'Cannot raise' };
-        }
-        if (action.amount < available.amounts.minRaise) {
-          return { valid: false, error: `Minimum raise to ${available.amounts.minRaise}` };
-        }
-        if (action.amount > available.amounts.maxRaise) {
-          return { valid: false, error: 'Not enough chips' };
-        }
-        return { valid: true };
-        
-      case 'allin':
-        if (!available.actions.allin) {
-          return { valid: false, error: 'Cannot go all-in' };
-        }
-        return { valid: true };
-        
-      default:
-        return { valid: false, error: 'Unknown action type' };
-    }
-  }
+  /* ================= STATE ================= */
 
   getPublicState() {
     return {
@@ -780,8 +674,8 @@ class GameState {
         folded: p.folded,
         allIn: p.allIn,
         contributedToPot: p.contributedToPot,
-        showHand: p.showHand ? p.hand : [],
-        handRank: p.handRank?.name || null
+        showHand: this.finished || p.folded ? p.hand : [],
+        handRank: this.finished ? p.handRank?.name : null
       }))
     };
   }
@@ -790,11 +684,25 @@ class GameState {
     const player = this.players.find(p => p.id === playerId);
     if (!player) return null;
 
-    const availableActions = this.getAvailableActions(playerId);
+    const toCall = this.currentBet - player.bet;
+    const minRaiseAmount = Math.max(
+      this.currentBet + this.minRaise,
+      BIG_BLIND
+    );
+    const maxRaiseAmount = player.chips + player.bet;
 
     return {
       hand: player.hand,
-      availableActions: availableActions
+      canCheck: toCall === 0,
+      canCall: toCall > 0 && toCall <= player.chips,
+      canBet: this.currentBet === 0 && player.chips > 0,
+      canRaise: player.chips > 0 && toCall < player.chips,
+      minBetAmount: BIG_BLIND,
+      minRaiseAmount: Math.min(minRaiseAmount, maxRaiseAmount),
+      maxRaiseAmount: maxRaiseAmount,
+      toCall: toCall,
+      chips: player.chips,
+      isAllIn: player.allIn
     };
   }
 
