@@ -1,3 +1,5 @@
+[file name]: gameState.js
+[file content begin]
 // backend/game/gameState.js
 const { Hand } = require('pokersolver');
 
@@ -21,14 +23,18 @@ class GameState {
       folded: false,
       allIn: false,
       acted: false,
-      lastHand: null,
       contributedToPot: 0,
       handRank: null,
     }));
 
     this.deck = [];
     this.communityCards = [];
-    this.mainPot = 0;
+    
+    // Упрощаем банк: храним только общий банк и банк текущей улицы
+    this.totalPot = 0;           // Общий банк (сумма всех фишек в игре)
+    this.currentStreetPot = 0;   // Сумма ставок на текущей улице
+    
+    // Дополнительные банки (для олл-инов) будем считать при необходимости
     this.sidePots = [];
 
     this.stage = 'preflop';
@@ -64,7 +70,8 @@ class GameState {
     this._shuffle();
 
     this.communityCards = [];
-    this.mainPot = 0;
+    this.totalPot = 0;
+    this.currentStreetPot = 0;
     this.sidePots = [];
     this.currentBet = 0;
     this.lastRaise = BIG_BLIND;
@@ -108,7 +115,8 @@ class GameState {
     sbPlayer.chips -= sbAmount;
     sbPlayer.bet = sbAmount;
     sbPlayer.contributedToPot = sbAmount;
-    this.mainPot += sbAmount;
+    this.totalPot += sbAmount;
+    this.currentStreetPot += sbAmount;
     if (sbPlayer.chips === 0) {
       sbPlayer.allIn = true;
       sbPlayer.acted = true;
@@ -120,7 +128,8 @@ class GameState {
     bbPlayer.chips -= bbAmount;
     bbPlayer.bet = bbAmount;
     bbPlayer.contributedToPot = bbAmount;
-    this.mainPot += bbAmount;
+    this.totalPot += bbAmount;
+    this.currentStreetPot += bbAmount;
     this.currentBet = bbAmount;
 
     if (bbPlayer.chips === 0) {
@@ -230,7 +239,8 @@ class GameState {
     player.chips -= callAmount;
     player.bet += callAmount;
     player.contributedToPot += callAmount;
-    this.mainPot += callAmount;
+    this.totalPot += callAmount;
+    this.currentStreetPot += callAmount;
 
     if (player.chips === 0) {
       player.allIn = true;
@@ -253,7 +263,8 @@ class GameState {
     player.chips -= amount;
     player.bet = totalAmount;
     player.contributedToPot += amount;
-    this.mainPot += amount;
+    this.totalPot += amount;
+    this.currentStreetPot += amount;
 
     this.currentBet = totalAmount;
     this.lastRaise = amount;
@@ -284,7 +295,8 @@ class GameState {
     player.chips -= amount;
     player.bet = totalAmount;
     player.contributedToPot += amount;
-    this.mainPot += amount;
+    this.totalPot += amount;
+    this.currentStreetPot += amount;
 
     this.lastRaise = totalAmount - this.currentBet;
     this.currentBet = totalAmount;
@@ -309,7 +321,8 @@ class GameState {
     player.chips = 0;
     player.bet = totalBet;
     player.contributedToPot += allInAmount;
-    this.mainPot += allInAmount;
+    this.totalPot += allInAmount;
+    this.currentStreetPot += allInAmount;
     player.allIn = true;
     player.acted = true;
 
@@ -337,7 +350,10 @@ class GameState {
   _nextStage() {
     console.log(`Переход на следующую улицу: ${this.stage} -> ${this._getNextStage()}`);
     
-    // Создаем side pots если нужно
+    // При переходе на новую улицу сбрасываем банк текущей улицы
+    this.currentStreetPot = 0;
+    
+    // Создаем side pots если нужно (при наличии олл-инов)
     this._createSidePots();
 
     // Сбрасываем текущие ставки для следующей улицы
@@ -395,20 +411,29 @@ class GameState {
   }
 
   _createSidePots() {
-    const playersWithContribution = this.players
+    // Создаем side pots только если есть игроки с разным количеством фишек
+    const playersWithDifferentBets = this.players
       .filter(p => !p.folded && p.contributedToPot > 0)
-      .sort((a, b) => a.contributedToPot - b.contributedToPot);
+      .map(p => p.contributedToPot);
+    
+    const uniqueBets = [...new Set(playersWithDifferentBets)];
+    
+    if (uniqueBets.length <= 1) {
+      this.sidePots = [];
+      return;
+    }
 
-    if (playersWithContribution.length <= 1) return;
-
+    // Сортируем уникальные ставки по возрастанию
+    uniqueBets.sort((a, b) => a - b);
+    
     this.sidePots = [];
     let previousLevel = 0;
 
-    for (let i = 0; i < playersWithContribution.length; i++) {
-      const currentLevel = playersWithContribution[i].contributedToPot;
-      if (currentLevel === previousLevel) continue;
-
+    for (let i = 0; i < uniqueBets.length - 1; i++) {
+      const currentLevel = uniqueBets[i];
       const levelAmount = currentLevel - previousLevel;
+      
+      // Находим игроков, которые могут претендовать на этот банк
       const eligiblePlayers = this.players.filter(p => 
         !p.folded && p.contributedToPot >= currentLevel
       );
@@ -429,10 +454,17 @@ class GameState {
 
       previousLevel = currentLevel;
     }
-
-    // Вычитаем side pots из main pot
-    const totalSidePots = this.sidePots.reduce((sum, pot) => sum + pot.amount, 0);
-    this.mainPot -= totalSidePots;
+    
+    // Главный банк - это ставки сверх предыдущих уровней
+    const mainPotPlayers = this.players.filter(p => 
+      !p.folded && p.contributedToPot >= uniqueBets[uniqueBets.length - 1]
+    );
+    
+    // Главный банк уже учтен в totalPot, но вычитаем из него side pots
+    // для корректного распределения при шоудауне
+    const sidePotsTotal = this.sidePots.reduce((sum, pot) => sum + pot.amount, 0);
+    // В реальности totalPot уже включает все, поэтому не вычитаем
+    console.log(`Создано side pots: ${this.sidePots.length}, сумма: ${sidePotsTotal}`);
   }
 
   finishShowdown() {
@@ -455,24 +487,8 @@ class GameState {
       console.log(`${player.name}: ${player.handRank?.name} - ${JSON.stringify(player.hand)}`);
     });
 
-    // Распределяем main pot
-    if (this.mainPot > 0) {
-      console.log(`Распределение основного банка: ${this.mainPot}`);
-      this._distributePot(this.mainPot, activePlayers.map(p => p.id));
-    }
-
-    // Распределяем side pots
-    this.sidePots.forEach((sidePot, index) => {
-      if (sidePot.amount > 0) {
-        console.log(`Распределение side pot ${index + 1}: ${sidePot.amount}`);
-        const eligiblePlayers = activePlayers.filter(p => 
-          sidePot.eligiblePlayers.includes(p.id)
-        );
-        if (eligiblePlayers.length > 0) {
-          this._distributePot(sidePot.amount, eligiblePlayers.map(p => p.id));
-        }
-      }
-    });
+    // Распределяем фишки
+    this._distributePots();
 
     // Определяем победителей для отображения
     if (this.winners.length > 0) {
@@ -482,6 +498,92 @@ class GameState {
 
     this.finished = true;
     console.log('Игра завершена');
+  }
+
+  _distributePots() {
+    const activePlayers = this.players.filter(p => !p.folded);
+    
+    // Если только один активный игрок, он получает весь банк
+    if (activePlayers.length === 1) {
+      const winner = activePlayers[0];
+      winner.chips += this.totalPot;
+      this.winners = [winner];
+      console.log(`${winner.name} получает весь банк: ${this.totalPot}`);
+      return;
+    }
+
+    // Сначала распределяем side pots (если есть)
+    this.sidePots.forEach((sidePot, index) => {
+      if (sidePot.amount > 0) {
+        const eligiblePlayers = activePlayers.filter(p => 
+          sidePot.eligiblePlayers.includes(p.id)
+        );
+        
+        if (eligiblePlayers.length === 1) {
+          // Один игрок получает весь side pot
+          eligiblePlayers[0].chips += sidePot.amount;
+          if (!this.winners.some(w => w.id === eligiblePlayers[0].id)) {
+            this.winners.push(eligiblePlayers[0]);
+          }
+          console.log(`${eligiblePlayers[0].name} получает side pot ${index + 1}: ${sidePot.amount}`);
+        } else if (eligiblePlayers.length > 1) {
+          // Определяем победителей для этого side pot
+          const hands = eligiblePlayers.map(p => p.handRank);
+          const winningHands = Hand.winners(hands);
+          const winners = eligiblePlayers.filter(p => 
+            winningHands.includes(p.handRank)
+          );
+          
+          const share = Math.floor(sidePot.amount / winners.length);
+          const remainder = sidePot.amount % winners.length;
+          
+          winners.forEach((winner, idx) => {
+            const amount = share + (idx < remainder ? 1 : 0);
+            winner.chips += amount;
+            if (!this.winners.some(w => w.id === winner.id)) {
+              this.winners.push(winner);
+            }
+            console.log(`${winner.name} получает часть side pot ${index + 1}: ${amount}`);
+          });
+        }
+      }
+    });
+
+    // Распределяем оставшийся главный банк
+    const sidePotsTotal = this.sidePots.reduce((sum, pot) => sum + pot.amount, 0);
+    const mainPotAmount = this.totalPot - sidePotsTotal;
+    
+    if (mainPotAmount > 0) {
+      const eligibleForMainPot = activePlayers.filter(p => 
+        p.contributedToPot >= Math.max(...this.players.map(p => p.contributedToPot))
+      );
+      
+      if (eligibleForMainPot.length === 1) {
+        eligibleForMainPot[0].chips += mainPotAmount;
+        if (!this.winners.some(w => w.id === eligibleForMainPot[0].id)) {
+          this.winners.push(eligibleForMainPot[0]);
+        }
+        console.log(`${eligibleForMainPot[0].name} получает главный банк: ${mainPotAmount}`);
+      } else {
+        const hands = eligibleForMainPot.map(p => p.handRank);
+        const winningHands = Hand.winners(hands);
+        const winners = eligibleForMainPot.filter(p => 
+          winningHands.includes(p.handRank)
+        );
+        
+        const share = Math.floor(mainPotAmount / winners.length);
+        const remainder = mainPotAmount % winners.length;
+        
+        winners.forEach((winner, idx) => {
+          const amount = share + (idx < remainder ? 1 : 0);
+          winner.chips += amount;
+          if (!this.winners.some(w => w.id === winner.id)) {
+            this.winners.push(winner);
+          }
+          console.log(`${winner.name} получает часть главного банка: ${amount}`);
+        });
+      }
+    }
   }
 
   _evaluateHand(player) {
@@ -504,61 +606,16 @@ class GameState {
     }
   }
 
-  _distributePot(potAmount, eligiblePlayerIds) {
-    const eligiblePlayers = this.players.filter(p => 
-      eligiblePlayerIds.includes(p.id) && !p.folded
-    );
-
-    if (eligiblePlayers.length === 0) return;
-
-    // Если только один игрок - он получает весь банк
-    if (eligiblePlayers.length === 1) {
-      eligiblePlayers[0].chips += potAmount;
-      if (!this.winners.some(w => w.id === eligiblePlayers[0].id)) {
-        this.winners.push(eligiblePlayers[0]);
-      }
-      console.log(`${eligiblePlayers[0].name} получает весь банк: ${potAmount}`);
-      return;
-    }
-
-    // Получаем руки всех игроков
-    const hands = eligiblePlayers.map(p => p.handRank);
-    
-    // Находим победителей
-    const winningHands = Hand.winners(hands);
-    const winners = eligiblePlayers.filter(p => 
-      winningHands.includes(p.handRank)
-    );
-
-    // Делим банк между победителями
-    const share = Math.floor(potAmount / winners.length);
-    const remainder = potAmount % winners.length;
-
-    console.log(`Победители (${winners.length}): ${winners.map(w => w.name).join(', ')}`);
-    console.log(`Доля каждому: ${share}, остаток: ${remainder}`);
-
-    winners.forEach((winner, index) => {
-      const amount = share + (index < remainder ? 1 : 0);
-      winner.chips += amount;
-      
-      if (!this.winners.some(w => w.id === winner.id)) {
-        this.winners.push(winner);
-      }
-      console.log(`${winner.name} получает: ${amount}`);
-    });
-  }
-
   _checkForEarlyWinner() {
     const activePlayers = this.players.filter(p => !p.folded);
     
     if (activePlayers.length === 1) {
       const winner = activePlayers[0];
-      const totalPot = this.mainPot + this.sidePots.reduce((sum, pot) => sum + pot.amount, 0);
-      winner.chips += totalPot;
+      winner.chips += this.totalPot;
       this.winners = [winner];
       this.winningHandName = 'Fold';
       this.finished = true;
-      console.log(`Досрочный победитель: ${winner.name} получает ${totalPot}`);
+      console.log(`Досрочный победитель: ${winner.name} получает ${this.totalPot}`);
       return true;
     }
     return false;
@@ -647,11 +704,8 @@ class GameState {
   getPublicState() {
     return {
       stage: this.stage,
-      pot: this.mainPot,
-      sidePots: this.sidePots.map(pot => ({
-        amount: pot.amount,
-        level: pot.level
-      })),
+      pot: this.totalPot, // Отображаем только общий банк
+      totalPot: this.totalPot,
       currentBet: this.currentBet,
       minRaise: this.minRaise,
       communityCards: this.communityCards,
@@ -728,13 +782,14 @@ class GameState {
     console.log('\n=== GAME STATE DEBUG ===');
     console.log('Stage:', this.stage);
     console.log('Current bet:', this.currentBet);
-    console.log('Main pot:', this.mainPot);
+    console.log('Total pot:', this.totalPot);
+    console.log('Current street pot:', this.currentStreetPot);
     console.log('Side pots:', this.sidePots.length);
     console.log('Current player:', this.currentPlayerIndex, this.players[this.currentPlayerIndex]?.name);
     console.log('Finished:', this.finished);
     console.log('Players:');
     this.players.forEach((p, i) => {
-      console.log(`  [${i}] ${p.name}: chips=${p.chips}, bet=${p.bet}, folded=${p.folded}, allIn=${p.allIn}, acted=${p.acted}`);
+      console.log(`  [${i}] ${p.name}: chips=${p.chips}, bet=${p.bet}, folded=${p.folded}, allIn=${p.allIn}, acted=${p.acted}, contributed=${p.contributedToPot}`);
     });
     console.log('=======================\n');
   }
@@ -747,3 +802,4 @@ module.exports = {
   MIN_PLAYERS, 
   MAX_PLAYERS 
 };
+[file content end]
