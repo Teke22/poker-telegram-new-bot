@@ -18,11 +18,8 @@ app.use(cors());
 app.use(express.json());
 
 /* ================= FRONTEND ================= */
-const frontendPath = path.join(__dirname, 'frontend');
-
-// Раздаем статические файлы
+const frontendPath = path.join(__dirname, '..', 'frontend');
 app.use(express.static(frontendPath));
-app.use('/modules', express.static(path.join(frontendPath, 'modules')));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(frontendPath, 'index.html'));
@@ -32,25 +29,18 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', rooms: Object.keys(rooms).length });
 });
 
-// Fallback для всех маршрутов SPA
-app.get('*', (req, res) => {
-  res.sendFile(path.join(frontendPath, 'index.html'));
-});
-
 /* ================= SOCKET.IO ================= */
 const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
-  },
-  transports: ['websocket', 'polling']
+  }
 });
 
 /* ================= MANAGERS ================= */
 const userManager = new UserManager();
 const rooms = {};        // code -> room
 const userSockets = {};  // userId -> socketId
-const socketToUser = {}; // socketId -> userId
 
 function generateRoomCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -102,7 +92,7 @@ function startNewHand(room) {
     return;
   }
 
-  // Send private cards to each player
+  // Send private cards
   room.players.forEach(p => {
     const socketId = userSockets[p.id];
     const privateState = room.game.getPlayerPrivateState(p.id);
@@ -121,82 +111,50 @@ function startNewHand(room) {
 io.on('connection', socket => {
   console.log('🔌 Connected:', socket.id);
 
-  // Track socket to user mapping
-  socketToUser[socket.id] = null;
-
   socket.on('disconnect', () => {
-    console.log('🔌 Disconnected:', socket.id);
-    
-    const userId = socketToUser[socket.id];
-    delete socketToUser[socket.id];
+    let userId = null;
+
+    for (const [uid, sid] of Object.entries(userSockets)) {
+      if (sid === socket.id) {
+        userId = uid;
+        delete userSockets[uid];
+        break;
+      }
+    }
 
     if (!userId) return;
-
-    delete userSockets[userId];
 
     for (const [code, room] of Object.entries(rooms)) {
       const player = room.players.find(p => p.id === userId);
       if (!player) continue;
 
-      console.log(`⚠️ ${player.name} disconnected from room ${code}`);
+      console.log(`⚠️ ${player.name} disconnected`);
 
       if (room.game) {
-        // Если игра идет, отмечаем игрока как оффлайн
-        const gamePlayer = room.game.players.find(p => p.id === userId);
-        if (gamePlayer) {
-          // Можно добавить логику для обработки отключения во время игры
-          console.log(`⚠️ ${player.name} отключился во время игры`);
+        if (room.game.playerLeave) {
+          room.game.playerLeave(userId);
         }
         io.to(code).emit('game_update', room.game.getPublicState());
       }
 
-      // Через 30 секунд удаляем игрока, если он не переподключился
       setTimeout(() => {
         if (!userSockets[userId] && rooms[code]) {
-          const playerIndex = room.players.findIndex(p => p.id === userId);
-          if (playerIndex !== -1) {
-            console.log(`🚪 Удаляем ${room.players[playerIndex].name} из комнаты ${code}`);
-            room.players.splice(playerIndex, 1);
-            
-            if (room.game) {
-              // Если игра идет, обрабатываем уход игрока
-              const gamePlayerIndex = room.game.players.findIndex(p => p.id === userId);
-              if (gamePlayerIndex !== -1) {
-                room.game.players[gamePlayerIndex].folded = true;
-                console.log(`🃏 ${room.game.players[gamePlayerIndex].name} сбрасывает карты из-за отключения`);
-              }
-              
-              // Проверяем, не остался ли один игрок
-              const activePlayers = room.game.players.filter(p => !p.folded);
-              if (activePlayers.length === 1) {
-                // Досрочное завершение игры
-                const winner = activePlayers[0];
-                winner.chips += room.game.totalPot;
-                room.game.winners = [winner];
-                room.game.finished = true;
-                console.log(`🏆 Досрочная победа ${winner.name} из-за отключения игроков`);
-              }
-              
-              io.to(code).emit('game_update', room.game.getPublicState());
+          room.players = room.players.filter(p => p.id !== userId);
+          io.to(code).emit('room_update', room);
+          cleanupRoom(code);
+          
+          // Удаляем пользователя из менеджера если он не в других комнатах
+          let isUserInOtherRooms = false;
+          for (const [roomCode, roomData] of Object.entries(rooms)) {
+            if (roomCode !== code && roomData.players.some(p => p.id === userId)) {
+              isUserInOtherRooms = true;
+              break;
             }
-            
-            io.to(code).emit('room_update', room);
-            cleanupRoom(code);
           }
-        }
-        
-        // Удаляем пользователя из менеджера если он не в других комнатах
-        let isUserInOtherRooms = false;
-        for (const [roomCode, roomData] of Object.entries(rooms)) {
-          if (roomCode !== code && roomData.players.some(p => p.id === userId)) {
-            isUserInOtherRooms = true;
-            break;
+          
+          if (!isUserInOtherRooms) {
+            userManager.removeUser(userId);
           }
-        }
-        
-        if (!isUserInOtherRooms) {
-          userManager.removeUser(userId);
-          console.log(`👤 Удален пользователь ${userId} из UserManager`);
         }
       }, 30000);
     }
@@ -256,10 +214,7 @@ io.on('connection', socket => {
 
   socket.on('create_room', ({ user }) => {
     const code = generateRoomCode();
-    
-    // Сохраняем связь сокета и пользователя
     userSockets[user.id] = socket.id;
-    socketToUser[socket.id] = user.id;
 
     // Получаем имя через UserManager
     const displayName = getDisplayName(user, true);
@@ -269,11 +224,9 @@ io.on('connection', socket => {
       players: [{
         id: user.id,
         name: displayName,
-        chips: 1000,
-        socketId: socket.id
+        chips: 1000
       }],
-      game: null,
-      createdAt: new Date().toISOString()
+      game: null
     };
 
     socket.join(code);
@@ -287,11 +240,6 @@ io.on('connection', socket => {
     const room = rooms[code];
     if (!room) return socket.emit('error_msg', 'Room not found');
     if (room.players.length >= 8) return socket.emit('error_msg', 'Room full');
-    
-    // Проверяем, не идет ли игра
-    if (room.game) {
-      return socket.emit('error_msg', 'Game already in progress');
-    }
 
     // Получаем имя через UserManager
     const displayName = getDisplayName(user, true);
@@ -302,17 +250,14 @@ io.on('connection', socket => {
       room.players.push({
         id: user.id,
         name: displayName,
-        chips: 1000,
-        socketId: socket.id
+        chips: 1000
       });
     } else {
       // Если игрок уже есть, обновляем его сокет и имя
       existingPlayer.name = displayName;
-      existingPlayer.socketId = socket.id;
     }
 
     userSockets[user.id] = socket.id;
-    socketToUser[socket.id] = user.id;
     socket.join(code);
 
     socket.emit('room_joined', room);
@@ -323,9 +268,7 @@ io.on('connection', socket => {
 
   socket.on('start_game', ({ code }) => {
     const room = rooms[code];
-    if (!room) return socket.emit('error_msg', 'Room not found');
-    if (room.players.length < 2) return socket.emit('error_msg', 'Need at least 2 players');
-    if (room.game) return socket.emit('error_msg', 'Game already started');
+    if (!room || room.players.length < 2) return;
 
     startNewHand(room);
   });
@@ -334,16 +277,9 @@ io.on('connection', socket => {
 
   socket.on('player_action', ({ code, playerId, action }) => {
     const room = rooms[code];
-    if (!room || !room.game) {
-      return socket.emit('error_msg', 'Game not found or not started');
-    }
+    if (!room || !room.game) return;
 
     try {
-      // Проверяем, принадлежит ли действие текущему пользователю
-      if (socketToUser[socket.id] !== playerId) {
-        return socket.emit('error_msg', 'Not authorized');
-      }
-
       room.game.playerAction(playerId, action);
       io.to(code).emit('game_update', room.game.getPublicState());
 
@@ -356,8 +292,7 @@ io.on('connection', socket => {
 
         io.to(code).emit('hand_finished', {
           winners: room.game.winners,
-          winningHandDescription: room.game.winningHandDescription,
-          winningHandName: room.game.winningHandName
+          reason: 'finished'
         });
 
         setTimeout(() => startNewHand(room), config.NEXT_HAND_DELAY || 5000);
@@ -372,23 +307,13 @@ io.on('connection', socket => {
     const room = rooms[code];
     if (!room || !room.game) return;
 
-    // Проверяем авторизацию
-    if (socketToUser[socket.id] !== playerId) {
-      return socket.emit('error_msg', 'Not authorized');
-    }
-
     const state = room.game.getPlayerPrivateState(playerId);
     if (state) socket.emit('my_cards', state.hand);
   });
 
   socket.on('leave_room', ({ code, playerId }) => {
     const room = rooms[code];
-    if (!room) return socket.emit('error_msg', 'Room not found');
-
-    // Проверяем авторизацию
-    if (socketToUser[socket.id] !== playerId) {
-      return socket.emit('error_msg', 'Not authorized');
-    }
+    if (!room) return;
 
     const player = room.players.find(p => p.id === playerId);
     if (player) {
@@ -397,10 +322,6 @@ io.on('connection', socket => {
 
     room.players = room.players.filter(p => p.id !== playerId);
     socket.leave(code);
-    
-    // Удаляем связи сокета
-    delete socketToUser[socket.id];
-    delete userSockets[playerId];
 
     io.to(code).emit('room_update', room);
     cleanupRoom(code);
@@ -417,7 +338,6 @@ io.on('connection', socket => {
       
       if (!isUserInOtherRooms) {
         userManager.removeUser(playerId);
-        console.log(`👤 Removed user ${playerId} from UserManager`);
       }
     }, 10000);
   });
@@ -426,11 +346,6 @@ io.on('connection', socket => {
   socket.on('get_my_private_state', ({ code, playerId }) => {
     const room = rooms[code];
     if (!room || !room.game) return;
-
-    // Проверяем авторизацию
-    if (socketToUser[socket.id] !== playerId) {
-      return socket.emit('error_msg', 'Not authorized');
-    }
 
     const privateState = room.game.getPlayerPrivateState(playerId);
     if (privateState) {
@@ -446,11 +361,7 @@ io.on('connection', socket => {
     const player = room.players.find(p => p.id === user.id);
     if (!player) return socket.emit('error_msg', 'Player not found in room');
 
-    // Обновляем связи сокета
     userSockets[user.id] = socket.id;
-    socketToUser[socket.id] = user.id;
-    player.socketId = socket.id;
-    
     socket.join(code);
 
     // Если игра идет, отправляем состояние игры
@@ -464,8 +375,6 @@ io.on('connection', socket => {
     } else {
       socket.emit('room_joined', room);
     }
-    
-    console.log(`🔗 ${player.name} reconnected to room ${code}`);
   });
 
   // Обработчик для проверки ника при входе
@@ -473,63 +382,12 @@ io.on('connection', socket => {
     const nickname = userManager.getNickname(user.id);
     const displayName = getDisplayName(user, false);
     
-    // Сохраняем связь сокета для нового пользователя
-    socketToUser[socket.id] = user.id;
-    
     socket.emit('nickname_check_result', { 
       hasNickname: !!nickname,
       displayName: displayName,
       nickname: nickname
     });
   });
-
-  // Пинг для проверки соединения
-  socket.on('ping', () => {
-    socket.emit('pong', { timestamp: Date.now() });
-  });
-
-  // Получить список активных комнат
-  socket.on('get_rooms', () => {
-    const availableRooms = Object.values(rooms)
-      .filter(room => !room.game && room.players.length < 8)
-      .map(room => ({
-        code: room.code,
-        players: room.players.length,
-        maxPlayers: 8,
-        created: room.createdAt
-      }));
-    
-    socket.emit('rooms_list', availableRooms);
-  });
-
-  // Получить информацию о комнате
-  socket.on('get_room_info', ({ code }) => {
-    const room = rooms[code];
-    if (!room) {
-      return socket.emit('room_info', { error: 'Room not found' });
-    }
-    
-    socket.emit('room_info', {
-      code: room.code,
-      players: room.players.length,
-      maxPlayers: 8,
-      inGame: !!room.game,
-      playersList: room.players.map(p => ({
-        name: p.name,
-        chips: p.chips
-      }))
-    });
-  });
-});
-
-/* ================= ERROR HANDLING ================= */
-
-process.on('uncaughtException', (error) => {
-  console.error('🔥 Uncaught Exception:', error);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('🔥 Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 /* ================= START ================= */
@@ -538,9 +396,4 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`👤 UserManager initialized`);
-  console.log(`🌐 Frontend served from: ${frontendPath}`);
-  console.log(`📁 Modules path: ${path.join(frontendPath, 'modules')}`);
 });
-
-// Экспортируем для тестов если нужно
-module.exports = { app, server, io };
