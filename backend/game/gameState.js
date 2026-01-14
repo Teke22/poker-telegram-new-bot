@@ -1,5 +1,3 @@
-[file name]: gameState.js
-[file content begin]
 // backend/game/gameState.js
 const { Hand } = require('pokersolver');
 
@@ -23,6 +21,7 @@ class GameState {
       folded: false,
       allIn: false,
       acted: false,
+      lastHand: null,
       contributedToPot: 0,
       handRank: null,
     }));
@@ -30,9 +29,8 @@ class GameState {
     this.deck = [];
     this.communityCards = [];
     
-    // Упрощаем банк: храним только общий банк и банк текущей улицы
+    // Упрощаем банк: храним только общий банк
     this.totalPot = 0;           // Общий банк (сумма всех фишек в игре)
-    this.currentStreetPot = 0;   // Сумма ставок на текущей улице
     
     // Дополнительные банки (для олл-инов) будем считать при необходимости
     this.sidePots = [];
@@ -71,7 +69,6 @@ class GameState {
 
     this.communityCards = [];
     this.totalPot = 0;
-    this.currentStreetPot = 0;
     this.sidePots = [];
     this.currentBet = 0;
     this.lastRaise = BIG_BLIND;
@@ -116,7 +113,6 @@ class GameState {
     sbPlayer.bet = sbAmount;
     sbPlayer.contributedToPot = sbAmount;
     this.totalPot += sbAmount;
-    this.currentStreetPot += sbAmount;
     if (sbPlayer.chips === 0) {
       sbPlayer.allIn = true;
       sbPlayer.acted = true;
@@ -129,7 +125,6 @@ class GameState {
     bbPlayer.bet = bbAmount;
     bbPlayer.contributedToPot = bbAmount;
     this.totalPot += bbAmount;
-    this.currentStreetPot += bbAmount;
     this.currentBet = bbAmount;
 
     if (bbPlayer.chips === 0) {
@@ -240,7 +235,6 @@ class GameState {
     player.bet += callAmount;
     player.contributedToPot += callAmount;
     this.totalPot += callAmount;
-    this.currentStreetPot += callAmount;
 
     if (player.chips === 0) {
       player.allIn = true;
@@ -264,7 +258,6 @@ class GameState {
     player.bet = totalAmount;
     player.contributedToPot += amount;
     this.totalPot += amount;
-    this.currentStreetPot += amount;
 
     this.currentBet = totalAmount;
     this.lastRaise = amount;
@@ -296,7 +289,6 @@ class GameState {
     player.bet = totalAmount;
     player.contributedToPot += amount;
     this.totalPot += amount;
-    this.currentStreetPot += amount;
 
     this.lastRaise = totalAmount - this.currentBet;
     this.currentBet = totalAmount;
@@ -322,7 +314,6 @@ class GameState {
     player.bet = totalBet;
     player.contributedToPot += allInAmount;
     this.totalPot += allInAmount;
-    this.currentStreetPot += allInAmount;
     player.allIn = true;
     player.acted = true;
 
@@ -349,9 +340,6 @@ class GameState {
 
   _nextStage() {
     console.log(`Переход на следующую улицу: ${this.stage} -> ${this._getNextStage()}`);
-    
-    // При переходе на новую улицу сбрасываем банк текущей улицы
-    this.currentStreetPot = 0;
     
     // Создаем side pots если нужно (при наличии олл-инов)
     this._createSidePots();
@@ -455,16 +443,7 @@ class GameState {
       previousLevel = currentLevel;
     }
     
-    // Главный банк - это ставки сверх предыдущих уровней
-    const mainPotPlayers = this.players.filter(p => 
-      !p.folded && p.contributedToPot >= uniqueBets[uniqueBets.length - 1]
-    );
-    
-    // Главный банк уже учтен в totalPot, но вычитаем из него side pots
-    // для корректного распределения при шоудауне
-    const sidePotsTotal = this.sidePots.reduce((sum, pot) => sum + pot.amount, 0);
-    // В реальности totalPot уже включает все, поэтому не вычитаем
-    console.log(`Создано side pots: ${this.sidePots.length}, сумма: ${sidePotsTotal}`);
+    console.log(`Создано side pots: ${this.sidePots.length}`);
   }
 
   finishShowdown() {
@@ -554,35 +533,24 @@ class GameState {
     const mainPotAmount = this.totalPot - sidePotsTotal;
     
     if (mainPotAmount > 0) {
-      const eligibleForMainPot = activePlayers.filter(p => 
-        p.contributedToPot >= Math.max(...this.players.map(p => p.contributedToPot))
+      // Главный банк получают все активные игроки
+      const hands = activePlayers.map(p => p.handRank);
+      const winningHands = Hand.winners(hands);
+      const winners = activePlayers.filter(p => 
+        winningHands.includes(p.handRank)
       );
       
-      if (eligibleForMainPot.length === 1) {
-        eligibleForMainPot[0].chips += mainPotAmount;
-        if (!this.winners.some(w => w.id === eligibleForMainPot[0].id)) {
-          this.winners.push(eligibleForMainPot[0]);
+      const share = Math.floor(mainPotAmount / winners.length);
+      const remainder = mainPotAmount % winners.length;
+      
+      winners.forEach((winner, idx) => {
+        const amount = share + (idx < remainder ? 1 : 0);
+        winner.chips += amount;
+        if (!this.winners.some(w => w.id === winner.id)) {
+          this.winners.push(winner);
         }
-        console.log(`${eligibleForMainPot[0].name} получает главный банк: ${mainPotAmount}`);
-      } else {
-        const hands = eligibleForMainPot.map(p => p.handRank);
-        const winningHands = Hand.winners(hands);
-        const winners = eligibleForMainPot.filter(p => 
-          winningHands.includes(p.handRank)
-        );
-        
-        const share = Math.floor(mainPotAmount / winners.length);
-        const remainder = mainPotAmount % winners.length;
-        
-        winners.forEach((winner, idx) => {
-          const amount = share + (idx < remainder ? 1 : 0);
-          winner.chips += amount;
-          if (!this.winners.some(w => w.id === winner.id)) {
-            this.winners.push(winner);
-          }
-          console.log(`${winner.name} получает часть главного банка: ${amount}`);
-        });
-      }
+        console.log(`${winner.name} получает часть главного банка: ${amount}`);
+      });
     }
   }
 
@@ -783,7 +751,6 @@ class GameState {
     console.log('Stage:', this.stage);
     console.log('Current bet:', this.currentBet);
     console.log('Total pot:', this.totalPot);
-    console.log('Current street pot:', this.currentStreetPot);
     console.log('Side pots:', this.sidePots.length);
     console.log('Current player:', this.currentPlayerIndex, this.players[this.currentPlayerIndex]?.name);
     console.log('Finished:', this.finished);
@@ -802,4 +769,3 @@ module.exports = {
   MIN_PLAYERS, 
   MAX_PLAYERS 
 };
-[file content end]
