@@ -1,0 +1,16 @@
+/* Весь CSS из оригинального файла остается здесь */
+body {
+  background: linear-gradient(135deg, #0b3d2e 0%, #1a5c48 100%);
+  color: #fff;
+  /* ... остальные стили ... */
+}
+
+/* ... все остальные стили ... */
+
+.winning-hand-info {
+  background: rgba(241, 196, 15, 0.2);
+  padding: 15px;
+  border-radius: 10px;
+  margin: 15px 0;
+  border: 2px solid #f1c40f;
+}
