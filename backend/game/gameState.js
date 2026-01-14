@@ -24,6 +24,7 @@ class GameState {
       lastHand: null,
       contributedToPot: 0,
       handRank: null,
+      showHand: false
     }));
 
     this.deck = [];
@@ -84,6 +85,7 @@ class GameState {
       p.acted = false;
       p.lastHand = null;
       p.handRank = null;
+      p.showHand = false;
     });
 
     // Ротация дилера
@@ -187,11 +189,37 @@ class GameState {
         throw new Error('Unknown command');
     }
 
-    if (!this.finished && this._bettingRoundFinished()) {
-      this._nextStage();
-    } else if (!this.finished) {
-      this._moveToNextPlayer();
+    // Проверяем, не завершилась ли игра после действия
+    this._checkForEarlyWinner();
+    
+    if (!this.finished) {
+      // Если все активные игроки all-in, сразу идем в шоудаун
+      if (this._allPlayersAllIn()) {
+        console.log('Все активные игроки all-in, переход к шоудауну');
+        this._goToShowdown();
+      } else if (this._bettingRoundFinished()) {
+        this._nextStage();
+      } else {
+        this._moveToNextPlayer();
+      }
     }
+  }
+
+  _allPlayersAllIn() {
+    const activePlayers = this.players.filter(p => !p.folded);
+    return activePlayers.length > 0 && activePlayers.every(p => p.allIn);
+  }
+
+  _goToShowdown() {
+    console.log('Немедленный переход к шоудауну');
+    
+    // Добиваем карты до ривера если нужно
+    while (this.communityCards.length < 5) {
+      this.communityCards.push(this.deck.pop());
+    }
+    
+    this.stage = 'showdown';
+    this.finishShowdown();
   }
 
   _handleCall(player) {
@@ -208,8 +236,10 @@ class GameState {
 
     if (player.chips === 0) {
       player.allIn = true;
+      player.acted = true;
+    } else {
+      player.acted = true;
     }
-    player.acted = true;
   }
 
   _handleBet(player, amount) {
@@ -292,6 +322,8 @@ class GameState {
       this.minRaise = Math.max(this.lastRaise, BIG_BLIND);
       this._resetActedFlags();
     }
+    
+    console.log(`${player.name} идет ALL-IN на ${allInAmount}, общая ставка: ${totalBet}`);
   }
 
   _resetActedFlags() {
@@ -305,6 +337,8 @@ class GameState {
   /* ================= FLOW ================= */
 
   _nextStage() {
+    console.log(`Переход на следующую улицу: ${this.stage} -> ${this._getNextStage()}`);
+    
     // Создаем side pots если нужно
     this._createSidePots();
 
@@ -320,29 +354,46 @@ class GameState {
     this.lastRaise = BIG_BLIND;
     this.minRaise = BIG_BLIND;
 
-    switch (this.stage) {
-      case 'preflop':
-        this.stage = 'flop';
+    const nextStage = this._getNextStage();
+    this.stage = nextStage;
+
+    // Если все активные игроки all-in, сразу переходим к шоудауну
+    if (this._allPlayersAllIn()) {
+      console.log('Все активные игроки all-in, пропускаем улицы до шоудауна');
+      this._goToShowdown();
+      return;
+    }
+
+    switch (nextStage) {
+      case 'flop':
         for (let i = 0; i < 3; i++) {
           this.communityCards.push(this.deck.pop());
         }
         break;
-      case 'flop':
-        this.stage = 'turn';
-        this.communityCards.push(this.deck.pop());
-        break;
       case 'turn':
-        this.stage = 'river';
         this.communityCards.push(this.deck.pop());
         break;
       case 'river':
-        this.stage = 'showdown';
+        this.communityCards.push(this.deck.pop());
+        break;
+      case 'showdown':
         this.finishShowdown();
         return;
     }
 
     // Начинаем с первого активного игрока после дилера
     this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
+    console.log(`Новый текущий игрок: ${this.players[this.currentPlayerIndex]?.name}`);
+  }
+
+  _getNextStage() {
+    switch (this.stage) {
+      case 'preflop': return 'flop';
+      case 'flop': return 'turn';
+      case 'turn': return 'river';
+      case 'river': return 'showdown';
+      default: return 'showdown';
+    }
   }
 
   _createSidePots() {
@@ -387,6 +438,8 @@ class GameState {
   }
 
   finishShowdown() {
+    console.log('Запуск шоудауна...');
+    
     const activePlayers = this.players.filter(p => !p.folded);
 
     if (activePlayers.length === 0) {
@@ -398,18 +451,23 @@ class GameState {
     this._createSidePots();
 
     // Оцениваем руки всех активных игроков
+    console.log('Оценка комбинаций:');
     activePlayers.forEach(player => {
       player.handRank = this._evaluateHand(player);
+      player.showHand = true; // Показываем карты всем
+      console.log(`${player.name}: ${player.handRank?.name} - ${JSON.stringify(player.hand)}`);
     });
 
     // Распределяем main pot
     if (this.mainPot > 0) {
+      console.log(`Распределение основного банка: ${this.mainPot}`);
       this._distributePot(this.mainPot, activePlayers.map(p => p.id));
     }
 
     // Распределяем side pots
-    this.sidePots.forEach(sidePot => {
+    this.sidePots.forEach((sidePot, index) => {
       if (sidePot.amount > 0) {
+        console.log(`Распределение side pot ${index + 1}: ${sidePot.amount}`);
         const eligiblePlayers = activePlayers.filter(p => 
           sidePot.eligiblePlayers.includes(p.id)
         );
@@ -422,19 +480,19 @@ class GameState {
     // Определяем победителей для отображения
     if (this.winners.length > 0) {
       this.winningHandName = this.winners[0].handRank?.name || 'Win';
+      console.log(`Победитель: ${this.winners[0].name} с комбинацией ${this.winningHandName}`);
     }
 
     this.finished = true;
+    console.log('Игра завершена');
   }
 
   _evaluateHand(player) {
-    // Правильный формат для pokersolver: 'As' (туз пик), 'Kh' (король червей) и т.д.
     const allCards = [...player.hand, ...this.communityCards];
     
     const cardStrings = allCards.map(card => {
-      // Убедимся, что масть в lowercase, а ранг в правильном формате
-      const rank = card.rank; // '2','3',...,'T','J','Q','K','A'
-      const suit = card.suit.toLowerCase(); // 's','h','d','c'
+      const rank = card.rank;
+      const suit = card.suit.toLowerCase();
       return rank + suit;
     });
 
@@ -462,6 +520,7 @@ class GameState {
       if (!this.winners.some(w => w.id === eligiblePlayers[0].id)) {
         this.winners.push(eligiblePlayers[0]);
       }
+      console.log(`${eligiblePlayers[0].name} получает весь банк: ${potAmount}`);
       return;
     }
 
@@ -478,6 +537,9 @@ class GameState {
     const share = Math.floor(potAmount / winners.length);
     const remainder = potAmount % winners.length;
 
+    console.log(`Победители (${winners.length}): ${winners.map(w => w.name).join(', ')}`);
+    console.log(`Доля каждому: ${share}, остаток: ${remainder}`);
+
     winners.forEach((winner, index) => {
       const amount = share + (index < remainder ? 1 : 0);
       winner.chips += amount;
@@ -485,6 +547,7 @@ class GameState {
       if (!this.winners.some(w => w.id === winner.id)) {
         this.winners.push(winner);
       }
+      console.log(`${winner.name} получает: ${amount}`);
     });
   }
 
@@ -498,6 +561,7 @@ class GameState {
       this.winners = [winner];
       this.winningHandName = 'Fold';
       this.finished = true;
+      console.log(`Досрочный победитель: ${winner.name} получает ${totalPot}`);
       return true;
     }
     return false;
@@ -508,11 +572,19 @@ class GameState {
   _bettingRoundFinished() {
     const activePlayers = this.players.filter(p => !p.folded);
     
-    // Все активные игроки должны быть либо all-in, либо уравнять ставки
-    return activePlayers.every(p => {
-      if (p.allIn) return true;
-      return p.acted && p.bet === this.currentBet;
+    // Если все активные игроки all-in, раунд завершен
+    if (activePlayers.every(p => p.allIn)) {
+      console.log('Все активные игроки all-in, раунд завершен');
+      return true;
+    }
+    
+    // Иначе проверяем стандартные условия
+    const allDone = activePlayers.every(p => {
+      return p.allIn || (p.acted && p.bet === this.currentBet);
     });
+    
+    console.log(`Раунд торговли завершен: ${allDone}`);
+    return allDone;
   }
 
   _moveToNextPlayer() {
@@ -521,16 +593,21 @@ class GameState {
     
     while (nextIndex !== startIndex) {
       const player = this.players[nextIndex];
+      
       if (!player.folded && !player.allIn && !player.acted) {
         this.currentPlayerIndex = nextIndex;
+        console.log(`Новый текущий игрок: ${this.currentPlayerIndex} (${player.name})`);
         return;
       }
       nextIndex = this._nextActivePlayer(nextIndex);
     }
     
-    // Если все игроки уже сделали действие, но раунд не закончился
-    // (это может произойти при all-in)
+    // Если не нашли следующего игрока, проверяем завершение раунда
     if (this._bettingRoundFinished()) {
+      this._nextStage();
+    } else {
+      console.log('Ошибка: не найден следующий игрок, но раунд не завершен!');
+      // Аварийный переход на следующую стадию
       this._nextStage();
     }
   }
@@ -568,7 +645,110 @@ class GameState {
     }
   }
 
-  /* ================= STATE ================= */
+  /* ================= PUBLIC API ================= */
+
+  // Метод для получения доступных действий игрока
+  getAvailableActions(playerId) {
+    const player = this.players.find(p => p.id === playerId);
+    if (!player) {
+      return { available: false, reason: 'Player not found' };
+    }
+
+    if (this.finished) {
+      return { available: false, reason: 'Game finished' };
+    }
+
+    if (this.currentPlayerId !== playerId) {
+      return { available: false, reason: 'Not your turn' };
+    }
+
+    if (player.folded) {
+      return { available: false, reason: 'Player folded' };
+    }
+
+    if (player.allIn) {
+      return { available: false, reason: 'Player all-in' };
+    }
+
+    const toCall = this.currentBet - player.bet;
+    const minBet = BIG_BLIND;
+    const minRaise = Math.max(this.currentBet + this.minRaise, BIG_BLIND);
+    const maxRaise = player.chips + player.bet;
+
+    return {
+      available: true,
+      actions: {
+        fold: true,
+        check: toCall === 0,
+        call: toCall > 0 && toCall <= player.chips,
+        bet: this.currentBet === 0 && player.chips >= minBet,
+        raise: player.chips > 0 && toCall < player.chips,
+        allin: player.chips > 0
+      },
+      amounts: {
+        toCall: toCall,
+        minBet: minBet,
+        minRaise: Math.min(minRaise, maxRaise),
+        maxRaise: maxRaise,
+        allin: player.chips
+      }
+    };
+  }
+
+  // Проверка валидности действия
+  validateAction(playerId, action) {
+    const available = this.getAvailableActions(playerId);
+    if (!available.available) {
+      return { valid: false, error: available.reason };
+    }
+
+    if (typeof action === 'string') action = { type: action };
+
+    switch (action.type) {
+      case 'fold':
+      case 'check':
+        return { valid: true };
+        
+      case 'call':
+        if (!available.actions.call) {
+          return { valid: false, error: 'Cannot call' };
+        }
+        return { valid: true };
+        
+      case 'bet':
+        if (!available.actions.bet) {
+          return { valid: false, error: 'Cannot bet' };
+        }
+        if (action.amount < available.amounts.minBet) {
+          return { valid: false, error: `Minimum bet is ${available.amounts.minBet}` };
+        }
+        if (action.amount > available.amounts.maxRaise) {
+          return { valid: false, error: 'Not enough chips' };
+        }
+        return { valid: true };
+        
+      case 'raise':
+        if (!available.actions.raise) {
+          return { valid: false, error: 'Cannot raise' };
+        }
+        if (action.amount < available.amounts.minRaise) {
+          return { valid: false, error: `Minimum raise to ${available.amounts.minRaise}` };
+        }
+        if (action.amount > available.amounts.maxRaise) {
+          return { valid: false, error: 'Not enough chips' };
+        }
+        return { valid: true };
+        
+      case 'allin':
+        if (!available.actions.allin) {
+          return { valid: false, error: 'Cannot go all-in' };
+        }
+        return { valid: true };
+        
+      default:
+        return { valid: false, error: 'Unknown action type' };
+    }
+  }
 
   getPublicState() {
     return {
@@ -600,8 +780,8 @@ class GameState {
         folded: p.folded,
         allIn: p.allIn,
         contributedToPot: p.contributedToPot,
-        showHand: this.finished || p.folded ? p.hand : [],
-        handRank: this.finished ? p.handRank?.name : null
+        showHand: p.showHand ? p.hand : [],
+        handRank: p.handRank?.name || null
       }))
     };
   }
@@ -610,25 +790,11 @@ class GameState {
     const player = this.players.find(p => p.id === playerId);
     if (!player) return null;
 
-    const toCall = this.currentBet - player.bet;
-    const minRaiseAmount = Math.max(
-      this.currentBet + this.minRaise,
-      BIG_BLIND
-    );
-    const maxRaiseAmount = player.chips + player.bet;
+    const availableActions = this.getAvailableActions(playerId);
 
     return {
       hand: player.hand,
-      canCheck: toCall === 0,
-      canCall: toCall > 0 && toCall <= player.chips,
-      canBet: this.currentBet === 0 && player.chips > 0,
-      canRaise: player.chips > 0 && toCall < player.chips,
-      minBetAmount: BIG_BLIND,
-      minRaiseAmount: Math.min(minRaiseAmount, maxRaiseAmount),
-      maxRaiseAmount: maxRaiseAmount,
-      toCall: toCall,
-      chips: player.chips,
-      isAllIn: player.allIn
+      availableActions: availableActions
     };
   }
 
@@ -648,6 +814,21 @@ class GameState {
       }
     });
     console.log('==================\n');
+  }
+
+  debugState() {
+    console.log('\n=== GAME STATE DEBUG ===');
+    console.log('Stage:', this.stage);
+    console.log('Current bet:', this.currentBet);
+    console.log('Main pot:', this.mainPot);
+    console.log('Side pots:', this.sidePots.length);
+    console.log('Current player:', this.currentPlayerIndex, this.players[this.currentPlayerIndex]?.name);
+    console.log('Finished:', this.finished);
+    console.log('Players:');
+    this.players.forEach((p, i) => {
+      console.log(`  [${i}] ${p.name}: chips=${p.chips}, bet=${p.bet}, folded=${p.folded}, allIn=${p.allIn}, acted=${p.acted}`);
+    });
+    console.log('=======================\n');
   }
 }
 

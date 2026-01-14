@@ -59,35 +59,6 @@ function cleanupRoom(code) {
   }
 }
 
-// Функция для получения отображаемого имени из Telegram user объекта
-function getTelegramDisplayName(user) {
-  // Проверяем, что user объект существует
-  if (!user) return 'Player';
-  
-  // Если есть username, используем его
-  if (user.username) {
-    return `@${user.username}`;
-  }
-  
-  // Если есть first_name и last_name
-  if (user.first_name && user.last_name) {
-    return `${user.first_name} ${user.last_name}`;
-  }
-  
-  // Если только first_name
-  if (user.first_name) {
-    return user.first_name;
-  }
-  
-  // Если ничего нет, используем ID
-  if (user.id) {
-    return `User_${String(user.id).slice(-4)}`;
-  }
-  
-  // Fallback
-  return 'Player';
-}
-
 /* ================= GAME FLOW ================= */
 
 function startNewHand(room) {
@@ -154,10 +125,7 @@ io.on('connection', socket => {
       console.log(`⚠️ ${player.name} disconnected`);
 
       if (room.game) {
-        // Если у GameState есть метод playerLeave, используем его
-        if (room.game.playerLeave) {
-          room.game.playerLeave(userId);
-        }
+        room.game.playerLeave(userId);
         io.to(code).emit('game_update', room.game.getPublicState());
       }
 
@@ -177,14 +145,11 @@ io.on('connection', socket => {
     const code = generateRoomCode();
     userSockets[user.id] = socket.id;
 
-    // Получаем имя из Telegram user объекта
-    const displayName = getTelegramDisplayName(user);
-    
     rooms[code] = {
       code,
       players: [{
         id: user.id,
-        name: displayName, // Используем правильное имя
+        name: user.first_name || 'Player',
         chips: 1000
       }],
       game: null
@@ -194,7 +159,7 @@ io.on('connection', socket => {
     socket.emit('room_joined', rooms[code]);
     io.to(code).emit('room_update', rooms[code]);
 
-    console.log(`🏠 Room ${code} created by ${displayName}`);
+    console.log(`🏠 Room ${code} created`);
   });
 
   socket.on('join_room', ({ code, user }) => {
@@ -202,20 +167,12 @@ io.on('connection', socket => {
     if (!room) return socket.emit('error_msg', 'Room not found');
     if (room.players.length >= 8) return socket.emit('error_msg', 'Room full');
 
-    // Получаем имя из Telegram user объекта
-    const displayName = getTelegramDisplayName(user);
-    
-    // Проверяем, есть ли уже игрок в комнате
-    const existingPlayer = room.players.find(p => p.id === user.id);
-    if (!existingPlayer) {
+    if (!room.players.find(p => p.id === user.id)) {
       room.players.push({
         id: user.id,
-        name: displayName, // Используем правильное имя
+        name: user.first_name || 'Player',
         chips: 1000
       });
-    } else {
-      // Если игрок уже есть, обновляем его сокет и имя (на случай если изменилось)
-      existingPlayer.name = displayName;
     }
 
     userSockets[user.id] = socket.id;
@@ -223,8 +180,6 @@ io.on('connection', socket => {
 
     socket.emit('room_joined', room);
     io.to(code).emit('room_update', room);
-    
-    console.log(`👤 ${displayName} joined room ${code}`);
   });
 
   socket.on('start_game', ({ code }) => {
@@ -245,7 +200,6 @@ io.on('connection', socket => {
       io.to(code).emit('game_update', room.game.getPublicState());
 
       if (room.game.finished) {
-        // Обновляем фишки игроков после игры
         room.players.forEach(p => {
           const gp = room.game.players.find(x => x.id === p.id);
           if (gp) p.chips = gp.chips;
@@ -256,11 +210,10 @@ io.on('connection', socket => {
           reason: 'finished'
         });
 
-        setTimeout(() => startNewHand(room), config.NEXT_HAND_DELAY || 5000);
+        setTimeout(() => startNewHand(room), config.NEXT_HAND_DELAY);
       }
     } catch (e) {
       socket.emit('error_msg', e.message);
-      console.error('Player action error:', e.message);
     }
   });
 
@@ -276,51 +229,11 @@ io.on('connection', socket => {
     const room = rooms[code];
     if (!room) return;
 
-    const player = room.players.find(p => p.id === playerId);
-    if (player) {
-      console.log(`🚪 ${player.name} left room ${code}`);
-    }
-
     room.players = room.players.filter(p => p.id !== playerId);
     socket.leave(code);
 
     io.to(code).emit('room_update', room);
     cleanupRoom(code);
-  });
-
-  // Новый обработчик для получения приватного состояния
-  socket.on('get_my_private_state', ({ code, playerId }) => {
-    const room = rooms[code];
-    if (!room || !room.game) return;
-
-    const privateState = room.game.getPlayerPrivateState(playerId);
-    if (privateState) {
-      socket.emit('my_private_state', privateState);
-    }
-  });
-
-  // Обработчик для восстановления соединения
-  socket.on('reconnect_room', ({ code, user }) => {
-    const room = rooms[code];
-    if (!room) return socket.emit('error_msg', 'Room not found');
-
-    const player = room.players.find(p => p.id === user.id);
-    if (!player) return socket.emit('error_msg', 'Player not found in room');
-
-    userSockets[user.id] = socket.id;
-    socket.join(code);
-
-    // Если игра идет, отправляем состояние игры
-    if (room.game) {
-      socket.emit('game_update', room.game.getPublicState());
-      const privateState = room.game.getPlayerPrivateState(user.id);
-      if (privateState) {
-        socket.emit('my_cards', privateState.hand);
-        socket.emit('my_private_state', privateState);
-      }
-    } else {
-      socket.emit('room_joined', room);
-    }
   });
 });
 
