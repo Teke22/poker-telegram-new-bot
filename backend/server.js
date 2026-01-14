@@ -7,6 +7,7 @@ const path = require('path');
 const { Server } = require('socket.io');
 
 const { GameState } = require('./game/gameState');
+const UserManager = require('./userManager');
 const config = require('./config');
 
 const app = express();
@@ -36,7 +37,8 @@ const io = new Server(server, {
   }
 });
 
-/* ================= ROOMS ================= */
+/* ================= MANAGERS ================= */
+const userManager = new UserManager();
 const rooms = {};        // code -> room
 const userSockets = {};  // userId -> socketId
 
@@ -59,33 +61,8 @@ function cleanupRoom(code) {
   }
 }
 
-// Функция для получения отображаемого имени из Telegram user объекта
-function getTelegramDisplayName(user) {
-  // Проверяем, что user объект существует
-  if (!user) return 'Player';
-  
-  // Если есть username, используем его
-  if (user.username) {
-    return `@${user.username}`;
-  }
-  
-  // Если есть first_name и last_name
-  if (user.first_name && user.last_name) {
-    return `${user.first_name} ${user.last_name}`;
-  }
-  
-  // Если только first_name
-  if (user.first_name) {
-    return user.first_name;
-  }
-  
-  // Если ничего нет, используем ID
-  if (user.id) {
-    return `User_${String(user.id).slice(-4)}`;
-  }
-  
-  // Fallback
-  return 'Player';
+function getDisplayName(user, useFallback = true) {
+  return userManager.getDisplayName(user, useFallback);
 }
 
 /* ================= GAME FLOW ================= */
@@ -154,7 +131,6 @@ io.on('connection', socket => {
       console.log(`⚠️ ${player.name} disconnected`);
 
       if (room.game) {
-        // Если у GameState есть метод playerLeave, используем его
         if (room.game.playerLeave) {
           room.game.playerLeave(userId);
         }
@@ -166,8 +142,71 @@ io.on('connection', socket => {
           room.players = room.players.filter(p => p.id !== userId);
           io.to(code).emit('room_update', room);
           cleanupRoom(code);
+          
+          // Удаляем пользователя из менеджера если он не в других комнатах
+          let isUserInOtherRooms = false;
+          for (const [roomCode, roomData] of Object.entries(rooms)) {
+            if (roomCode !== code && roomData.players.some(p => p.id === userId)) {
+              isUserInOtherRooms = true;
+              break;
+            }
+          }
+          
+          if (!isUserInOtherRooms) {
+            userManager.removeUser(userId);
+          }
         }
       }, 30000);
+    }
+  });
+
+  /* ---------- USER NICKNAME ---------- */
+
+  socket.on('set_nickname', ({ nickname, user }) => {
+    try {
+      const displayName = userManager.setNickname(user.id, nickname);
+      
+      // Обновляем имя во всех комнатах, где есть пользователь
+      for (const [code, room] of Object.entries(rooms)) {
+        const player = room.players.find(p => p.id === user.id);
+        if (player) {
+          player.name = displayName;
+          
+          // Если идет игра, обновляем и там
+          if (room.game) {
+            const gamePlayer = room.game.players.find(p => p.id === user.id);
+            if (gamePlayer) {
+              gamePlayer.name = displayName;
+              io.to(code).emit('game_update', room.game.getPublicState());
+            }
+          }
+          
+          io.to(code).emit('room_update', room);
+        }
+      }
+      
+      socket.emit('nickname_set', { success: true, nickname: displayName });
+      console.log(`📝 User ${user.id} set nickname: ${displayName}`);
+      
+    } catch (error) {
+      socket.emit('nickname_set', { success: false, error: error.message });
+    }
+  });
+
+  socket.on('get_nickname', ({ user }) => {
+    const nickname = userManager.getNickname(user.id);
+    socket.emit('nickname_info', { 
+      nickname, 
+      hasNickname: !!nickname 
+    });
+  });
+
+  socket.on('generate_nickname', ({ user }) => {
+    try {
+      const randomNickname = userManager.generateRandomNickname(user.id);
+      socket.emit('nickname_generated', { nickname: randomNickname });
+    } catch (error) {
+      socket.emit('nickname_generated', { error: error.message });
     }
   });
 
@@ -177,14 +216,14 @@ io.on('connection', socket => {
     const code = generateRoomCode();
     userSockets[user.id] = socket.id;
 
-    // Получаем имя из Telegram user объекта
-    const displayName = getTelegramDisplayName(user);
+    // Получаем имя через UserManager
+    const displayName = getDisplayName(user, true);
     
     rooms[code] = {
       code,
       players: [{
         id: user.id,
-        name: displayName, // Используем правильное имя
+        name: displayName,
         chips: 1000
       }],
       game: null
@@ -202,19 +241,19 @@ io.on('connection', socket => {
     if (!room) return socket.emit('error_msg', 'Room not found');
     if (room.players.length >= 8) return socket.emit('error_msg', 'Room full');
 
-    // Получаем имя из Telegram user объекта
-    const displayName = getTelegramDisplayName(user);
+    // Получаем имя через UserManager
+    const displayName = getDisplayName(user, true);
     
     // Проверяем, есть ли уже игрок в комнате
     const existingPlayer = room.players.find(p => p.id === user.id);
     if (!existingPlayer) {
       room.players.push({
         id: user.id,
-        name: displayName, // Используем правильное имя
+        name: displayName,
         chips: 1000
       });
     } else {
-      // Если игрок уже есть, обновляем его сокет и имя (на случай если изменилось)
+      // Если игрок уже есть, обновляем его сокет и имя
       existingPlayer.name = displayName;
     }
 
@@ -286,6 +325,21 @@ io.on('connection', socket => {
 
     io.to(code).emit('room_update', room);
     cleanupRoom(code);
+    
+    // Удаляем пользователя из менеджера если он не в других комнатах
+    setTimeout(() => {
+      let isUserInOtherRooms = false;
+      for (const [roomCode, roomData] of Object.entries(rooms)) {
+        if (roomCode !== code && roomData.players.some(p => p.id === playerId)) {
+          isUserInOtherRooms = true;
+          break;
+        }
+      }
+      
+      if (!isUserInOtherRooms) {
+        userManager.removeUser(playerId);
+      }
+    }, 10000);
   });
 
   // Новый обработчик для получения приватного состояния
@@ -322,6 +376,18 @@ io.on('connection', socket => {
       socket.emit('room_joined', room);
     }
   });
+
+  // Обработчик для проверки ника при входе
+  socket.on('check_nickname_on_enter', ({ user }) => {
+    const nickname = userManager.getNickname(user.id);
+    const displayName = getDisplayName(user, false);
+    
+    socket.emit('nickname_check_result', { 
+      hasNickname: !!nickname,
+      displayName: displayName,
+      nickname: nickname
+    });
+  });
 });
 
 /* ================= START ================= */
@@ -329,4 +395,5 @@ io.on('connection', socket => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`👤 UserManager initialized`);
 });

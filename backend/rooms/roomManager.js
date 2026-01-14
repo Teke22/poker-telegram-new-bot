@@ -1,10 +1,16 @@
+const UserManager = require('./userManager');
+
 class RoomManager {
   constructor() {
     this.rooms = new Map(); // roomCode -> room
+    this.userManager = new UserManager();
   }
 
   createRoom(owner) {
     const code = this.generateCode();
+
+    // Получаем отображаемое имя через UserManager
+    const displayName = this.userManager.getDisplayName(owner, true);
 
     const room = {
       code,
@@ -12,11 +18,11 @@ class RoomManager {
       players: [
         {
           id: owner.id,
-          name: this._getPlayerDisplayName(owner),
-          chips: 1000, // Добавляем начальные фишки
+          name: displayName,
+          chips: 1000,
         },
       ],
-      state: 'lobby', // lobby | playing
+      state: 'lobby',
       smallBlind: 10,
       bigBlind: 20,
       minBuyin: 100,
@@ -34,6 +40,8 @@ class RoomManager {
     // Если игрок уже в комнате, возвращаем его
     const existingPlayer = room.players.find(p => p.id === user.id);
     if (existingPlayer) {
+      // Обновляем имя на случай если изменился ник
+      existingPlayer.name = this.userManager.getDisplayName(user, true);
       return room;
     }
 
@@ -41,10 +49,13 @@ class RoomManager {
       throw new Error('Комната заполнена');
     }
 
+    // Получаем отображаемое имя через UserManager
+    const displayName = this.userManager.getDisplayName(user, true);
+
     room.players.push({
       id: user.id,
-      name: this._getPlayerDisplayName(user),
-      chips: 1000, // Начальные фишки
+      name: displayName,
+      chips: 1000,
     });
 
     return room;
@@ -62,34 +73,38 @@ class RoomManager {
         this.rooms.delete(code);
       }
     }
+    
+    // Удаляем пользователя из UserManager если он не в других комнатах
+    let isUserInAnyRoom = false;
+    for (const room of this.rooms.values()) {
+      if (room.players.some(p => p.id === userId)) {
+        isUserInAnyRoom = true;
+        break;
+      }
+    }
+    
+    if (!isUserInAnyRoom) {
+      this.userManager.removeUser(userId);
+    }
   }
 
   generateCode() {
     return Math.random().toString(36).substring(2, 7).toUpperCase();
   }
 
-  // Новый метод для формирования имени игрока
-  _getPlayerDisplayName(user) {
-    // Если есть username в Telegram, используем его
-    if (user.username) {
-      return `@${user.username}`;
+  // Получить UserManager для использования в других частях приложения
+  getUserManager() {
+    return this.userManager;
+  }
+
+  // Обновить имя игрока во всех комнатах
+  updatePlayerName(userId, newName) {
+    for (const [code, room] of this.rooms.entries()) {
+      const player = room.players.find(p => p.id === userId);
+      if (player) {
+        player.name = newName;
+      }
     }
-    
-    // Если есть first_name и last_name
-    if (user.first_name && user.last_name) {
-      return `${user.first_name} ${user.last_name}`;
-    }
-    
-    // Если только first_name
-    if (user.first_name) {
-      // Добавляем короткую версию ID для уникальности
-      const shortId = String(user.id).slice(-4);
-      return `${user.first_name}_${shortId}`;
-    }
-    
-    // Если ничего нет, генерируем имя
-    const randomId = Math.random().toString(36).substring(2, 6).toUpperCase();
-    return `Player_${randomId}`;
   }
 
   // Дополнительные методы для управления комнатой

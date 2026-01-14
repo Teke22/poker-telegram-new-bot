@@ -509,12 +509,20 @@ function showGame() {
           <div class="stage-indicator">${stageName}</div>
         </div>
         <div>
-          <div style="color:#95a5a6;">Банк</div>
+          <div style="color:#95a5a6;">Общий банк</div>
           <div class="pot-amount">${gameState.pot}</div>
+          ${gameState.players.some(p => p.allIn) ? 
+            `<div style="color:#f39c12; font-size:12px; margin-top:5px;">⚠️ Есть all-in</div>` : 
+            ''
+          }
         </div>
         <div>
           <div style="color:#95a5a6;">Текущая ставка</div>
           <div style="font-size:20px; color:#e74c3c;">${gameState.currentBet}</div>
+          ${gameState.minRaise > gameState.currentBet ? 
+            `<div style="color:#3498db; font-size:12px; margin-top:5px;">Мин. рейз: ${gameState.minRaise}</div>` : 
+            ''
+          }
         </div>
       </div>
       
@@ -541,6 +549,9 @@ function showGame() {
             ${meInGame.bet > 0 ? `
               <span style="margin-left:15px; color:#bdc3c7;">Ставка: </span>
               <span class="bet-amount">${meInGame.bet}</span>
+            ` : ''}
+            ${meInGame.allIn ? `
+              <span style="margin-left:15px; color:#f39c12; font-weight:bold;">ALL-IN</span>
             ` : ''}
           </div>
         ` : ''}
@@ -585,6 +596,11 @@ function showGame() {
                   <div>
                     ${p.showHand.map(card => renderCard(card, true)).join('')}
                   </div>
+                  ${p.handDescription ? `
+                    <div style="margin-top:8px; color:#f1c40f; font-weight:bold;">
+                      ${p.handDescription}
+                    </div>
+                  ` : ''}
                 </div>
               ` : ''}
             </div>
@@ -636,7 +652,7 @@ function showGame() {
   
   // Обновляем статус
   if (isMyTurn) {
-    updateStatus(`🎯 ВАШ ХОД! Стадия: ${stageName}`);
+    updateStatus(`🎯 ВАШ ХОД! Стадия: ${stageName} | Банк: ${gameState.pot} | Нужно коллировать: ${gameState.currentBet - (meInGame?.bet || 0)}`);
   } else if (gameState.finished) {
     if (shouldShowWinners && !winnersShown) {
       updateStatus(`🏆 ШОУДАУН! Определение победителя...`);
@@ -650,7 +666,7 @@ function showGame() {
       updateStatus(`🏆 РАЗДАЧА ЗАВЕРШЕНА! Победитель: ${gameState.winners[0]?.name || 'Не определен'}`);
     }
   } else {
-    updateStatus(`⏳ Ходит: ${getPlayerDisplayName(gameState.players.find(p => p.id === gameState.currentPlayerId) || {name: currentPlayerName})}`);
+    updateStatus(`⏳ Ходит: ${getPlayerDisplayName(gameState.players.find(p => p.id === gameState.currentPlayerId) || {name: currentPlayerName})} | Банк: ${gameState.pot}`);
   }
   
   // Если наша очередь, обновляем действия
@@ -660,12 +676,12 @@ function showGame() {
 }
 
 function renderWinningHandInfo() {
-  if (!gameState.winningHandName) return '';
+  if (!gameState.winningHandDescription) return '';
   
   return `
     <div class="winning-hand-info">
       <h3 style="margin-top:0; color:#f1c40f; text-align:center;">🏆 ВЫИГРЫШНАЯ КОМБИНАЦИЯ</h3>
-      <div class="combination-name">${gameState.winningHandName}</div>
+      <div class="combination-name">${gameState.winningHandDescription}</div>
       <p style="color:#bdc3c7; text-align:center; margin:10px 0;">
         Лучшая рука за столом
       </p>
@@ -707,6 +723,9 @@ function updateActions() {
       <div style="background:rgba(231, 76, 60, 0.2); padding:10px; border-radius:8px; margin-bottom:15px;">
         <p style="margin:0; font-size:16px;">
           Нужно поставить: <strong style="color:#e74c3c; font-size:18px;">${toCall}</strong> чтобы коллировать
+        </p>
+        <p style="margin:5px 0 0 0; font-size:14px; color:#bdc3c7;">
+          Текущая ставка: ${gameState.currentBet}, ваша ставка: ${meInGame.bet}
         </p>
       </div>
     `;
@@ -776,7 +795,7 @@ function renderWinners() {
               <div style="font-size:20px; color:#f1c40f; margin-bottom:10px;">
                 ${getPlayerDisplayName(player || winner, player?.id === me.id)}
                 <span style="font-size:16px; color:#2ecc71; margin-left:10px;">
-                  (Выигрыш: +${Math.floor(gameState.pot / gameState.winners.length)})
+                  ПОБЕДИТЕЛЬ
                 </span>
               </div>
               
@@ -789,9 +808,9 @@ function renderWinners() {
                 </div>
               ` : ''}
               
-              ${player?.handRank ? `
+              ${player?.handDescription ? `
                 <div style="color:#bdc3c7; margin-top:10px;">
-                  Комбинация: <strong style="color:#f1c40f;">${player.handRank}</strong>
+                  Комбинация: <strong style="color:#f1c40f;">${player.handDescription}</strong>
                 </div>
               ` : ''}
             </div>
@@ -1015,6 +1034,15 @@ socket.on('my_cards', (cards) => {
 socket.on('error_msg', (msg) => {
   console.error('Server error:', msg);
   alert('❌ Ошибка: ' + msg);
+});
+
+socket.on('hand_finished', (data) => {
+  console.log('Hand finished:', data);
+  if (gameState) {
+    gameState.finished = true;
+    gameState.winners = data.winners || [];
+    showGame();
+  }
 });
 
 // Инициализация

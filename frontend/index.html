@@ -1,5 +1,3 @@
-[file name]: index.html
-[file content begin]
 <!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -287,6 +285,109 @@ button:disabled {
   font-size:14px;
   margin-bottom:8px;
 }
+.nickname-dialog {
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+  background:rgba(0,0,0,0.85);
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  z-index:1000;
+  padding:20px;
+}
+.nickname-content {
+  background:linear-gradient(135deg, #1a5276, #154360);
+  padding:30px;
+  border-radius:20px;
+  max-width:500px;
+  width:100%;
+  box-shadow:0 20px 40px rgba(0,0,0,0.5);
+  text-align:center;
+  border:3px solid #2ecc71;
+}
+.nickname-title {
+  color:#2ecc71;
+  margin-top:0;
+  font-size:28px;
+}
+.nickname-subtitle {
+  color:#bdc3c7;
+  margin-bottom:25px;
+  font-size:16px;
+}
+.nickname-input {
+  width:100%;
+  padding:15px;
+  border-radius:10px;
+  border:2px solid #3498db;
+  font-size:18px;
+  background:rgba(255,255,255,0.1);
+  color:white;
+  margin-bottom:10px;
+  box-sizing:border-box;
+  text-align:center;
+}
+.nickname-input:focus {
+  outline:none;
+  border-color:#2ecc71;
+}
+.nickname-error {
+  color:#e74c3c;
+  min-height:24px;
+  margin:5px 0;
+  font-size:14px;
+}
+.nickname-buttons {
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  margin-top:20px;
+}
+.nickname-btn {
+  padding:15px;
+  border:none;
+  border-radius:10px;
+  font-size:16px;
+  font-weight:bold;
+  cursor:pointer;
+  transition:all 0.3s;
+}
+.nickname-btn:hover {
+  transform:translateY(-2px);
+}
+.nickname-btn-save {
+  background:linear-gradient(145deg, #27ae60, #219653);
+  color:white;
+}
+.nickname-btn-random {
+  background:linear-gradient(145deg, #3498db, #2980b9);
+  color:white;
+}
+.nickname-btn-skip {
+  background:linear-gradient(145deg, #95a5a6, #7f8c8d);
+  color:white;
+}
+.nickname-rules {
+  margin-top:20px;
+  padding-top:15px;
+  border-top:1px solid rgba(255,255,255,0.2);
+  color:#7f8c8d;
+  font-size:14px;
+}
+.current-nickname {
+  background:rgba(46, 204, 113, 0.2);
+  padding:10px;
+  border-radius:8px;
+  margin-bottom:15px;
+  border:1px dashed #2ecc71;
+}
+.current-nickname span {
+  color:#f1c40f;
+  font-weight:bold;
+}
 </style>
 </head>
 
@@ -304,15 +405,20 @@ if (tg && tg.initDataUnsafe?.user) {
   const user = tg.initDataUnsafe.user;
   me = {
     id: String(user.id),
-    name: user.first_name || 
-          (user.username ? '@' + user.username : `Игрок_${String(user.id).slice(-4)}`),
+    username: user.username,
+    first_name: user.first_name,
+    last_name: user.last_name,
+    name: '', // Будет установлено после проверки ника
     chips: 1000
   };
 } else {
   const randomId = Math.random().toString(36).substr(2, 6).toUpperCase();
   me = {
     id: 'debug_' + randomId,
-    name: `Игрок_${randomId}`,
+    username: null,
+    first_name: null,
+    last_name: null,
+    name: '',
     chips: 1000
   };
 }
@@ -324,20 +430,19 @@ let myCards = [];
 let gameState = null;
 let showWinnersTimeout = null;
 let winnersShown = false;
+let hasNickname = false;
 
 // ============= UTILITY FUNCTIONS =============
 
 function getPlayerDisplayName(player, isMe = false) {
   if (isMe) return `${player.name} 👤`;
   
+  if (!player.name) return `Игрок...`;
+  
   if (player.name.startsWith('@')) return player.name;
   
-  if (player.name.includes('Игрок_')) {
-    const idPart = player.name.split('_')[1] || '';
-    return `Игрок_${idPart.substring(0, 4)}`;
-  }
-  
-  return player.name.length > 10 ? player.name.substring(0, 10) + '...' : player.name;
+  // Обрезаем длинные имена
+  return player.name.length > 15 ? player.name.substring(0, 15) + '...' : player.name;
 }
 
 function renderCard(card, isWinning = false) {
@@ -377,6 +482,122 @@ function updateStatus(text) {
   document.getElementById('status').innerText = text;
 }
 
+// ============= NICKNAME FUNCTIONS =============
+
+function showNicknameDialog(forceShow = false) {
+  document.getElementById('app').innerHTML = `
+    <div class="nickname-dialog">
+      <div class="nickname-content">
+        <h2 class="nickname-title">🎮 ВЫБЕРИТЕ НИКНЕЙМ</h2>
+        <p class="nickname-subtitle">Ваше имя будет отображаться у всех игроков за столом</p>
+        
+        ${!forceShow && me.name ? `
+          <div class="current-nickname">
+            <p>Текущий ник: <span>${me.name}</span></p>
+            <p style="font-size:14px; color:#bdc3c7; margin-top:5px;">
+              Вы можете оставить текущий или выбрать новый
+            </p>
+          </div>
+        ` : ''}
+        
+        <div style="margin-bottom:20px;">
+          <input id="nicknameInput" class="nickname-input" 
+                 placeholder="Введите ник (3-15 символов)" 
+                 maxlength="15">
+          <div id="nicknameError" class="nickname-error"></div>
+        </div>
+        
+        <div class="nickname-buttons">
+          <button onclick="setNickname()" class="nickname-btn nickname-btn-save">
+            ✅ ${me.name ? 'СОХРАНИТЬ НОВЫЙ НИК' : 'СОХРАНИТЬ НИК'}
+          </button>
+          
+          <button onclick="generateRandomNickname()" class="nickname-btn nickname-btn-random">
+            🎲 СЛУЧАЙНЫЙ НИК
+          </button>
+          
+          ${!forceShow && me.name ? `
+            <button onclick="skipNickname()" class="nickname-btn nickname-btn-skip">
+              ⏩ ПРОДОЛЖИТЬ С ТЕКУЩИМ
+            </button>
+          ` : ''}
+          
+          ${forceShow ? `
+            <button onclick="forceSkipNickname()" class="nickname-btn nickname-btn-skip">
+              ⚡ ИСПОЛЬЗОВАТЬ ИМЯ ИЗ TELEGRAM
+            </button>
+          ` : ''}
+        </div>
+        
+        <div class="nickname-rules">
+          <p>Можно использовать буквы (русские/английские), цифры и символ _</p>
+          <p style="margin-top:5px;">Пример: Poker_King, Игрок_123, Cool_Guy</p>
+        </div>
+      </div>
+    </div>
+  `;
+  
+  // Фокусируемся на поле ввода
+  setTimeout(() => {
+    const input = document.getElementById('nicknameInput');
+    if (input) {
+      input.focus();
+      if (me.name && !forceShow) {
+        input.value = me.name;
+      }
+    }
+  }, 100);
+  
+  updateStatus('Выберите никнейм для игры');
+}
+
+function setNickname() {
+  const nickname = document.getElementById('nicknameInput').value.trim();
+  const errorEl = document.getElementById('nicknameError');
+  
+  if (!nickname) {
+    errorEl.textContent = 'Введите никнейм';
+    return;
+  }
+  
+  if (nickname.length < 3) {
+    errorEl.textContent = 'Никнейм должен быть не менее 3 символов';
+    return;
+  }
+  
+  if (nickname.length > 15) {
+    errorEl.textContent = 'Никнейм должен быть не более 15 символов';
+    return;
+  }
+  
+  socket.emit('set_nickname', { nickname, user: me });
+}
+
+function generateRandomNickname() {
+  socket.emit('generate_nickname', { user: me });
+}
+
+function skipNickname() {
+  showLobby();
+}
+
+function forceSkipNickname() {
+  // Используем имя из Telegram как есть
+  me.name = getTelegramFallbackName();
+  hasNickname = false;
+  showLobby();
+}
+
+function getTelegramFallbackName() {
+  if (tg && tg.initDataUnsafe?.user) {
+    const user = tg.initDataUnsafe.user;
+    if (user.username) return `@${user.username}`;
+    if (user.first_name && user.last_name) return `${user.first_name} ${user.last_name}`;
+    if (user.first_name) return user.first_name;
+  }
+  return `Игрок_${String(me.id).slice(-4)}`;
+}
+
 // ============= UI FUNCTIONS =============
 
 function showLobby() {
@@ -387,7 +608,8 @@ function showLobby() {
       <div style="background:rgba(0,0,0,0.3); padding:20px; border-radius:15px; margin:0 auto 30px; max-width:400px;">
         <div style="margin-bottom:20px;">
           <h3>👤 Ваш профиль</h3>
-          <p><strong>Имя:</strong> ${me.name}</p>
+          <p><strong>Имя:</strong> ${me.name || 'Не установлено'}</p>
+          ${me.name ? `<p><small style="color:#bdc3c7;">Это имя видят другие игроки</small></p>` : ''}
           <p><strong>ID:</strong> ${me.id.slice(0, 12)}...</p>
           <p><strong>Фишки:</strong> <span style="color:#f1c40f;">${me.chips}</span></p>
         </div>
@@ -415,10 +637,19 @@ function showLobby() {
             ВОЙТИ
           </button>
         </div>
+        
+        <div style="margin-top:30px; padding-top:20px; border-top:2px solid rgba(255,255,255,0.1);">
+          <button onclick="showNicknameDialog(true)" style="
+            background:linear-gradient(145deg, #9b59b6, #8e44ad); 
+            padding:12px 20px; 
+            font-size:14px;">
+            ✏️ ИЗМЕНИТЬ НИКНЕЙМ
+          </button>
+        </div>
       </div>
     </div>
   `;
-  updateStatus('Добро пожаловать в покер!');
+  updateStatus(`Добро пожаловать${me.name ? ', ' + me.name : ''}! Выберите действие`);
 }
 
 function showRoom() {
@@ -479,7 +710,7 @@ function showRoom() {
       </div>
     </div>
   `;
-  updateStatus(`Вы в комнате ${room.code} | Игроков: ${room.players.length}`);
+  updateStatus(`Вы в комнате ${room.code} | Игроков: ${room.players.length} | Ваш ник: ${me.name}`);
 }
 
 function showGame() {
@@ -502,7 +733,7 @@ function showGame() {
   document.getElementById('app').innerHTML = `
     <div style="max-width:800px; margin:0 auto;">
       <h2 style="text-align:center; color:#f1c40f; margin-bottom:5px;">POKER TABLE</h2>
-      <p style="text-align:center; color:#bdc3c7; margin-top:0;">Комната: ${room?.code || ''}</p>
+      <p style="text-align:center; color:#bdc3c7; margin-top:0;">Комната: ${room?.code || ''} | Ваш ник: ${me.name}</p>
       
       <!-- Статус и банк -->
       <div class="pot-info">
@@ -598,6 +829,11 @@ function showGame() {
                   <div>
                     ${p.showHand.map(card => renderCard(card, true)).join('')}
                   </div>
+                  ${p.handDescription ? `
+                    <div style="margin-top:8px; color:#f1c40f; font-weight:bold;">
+                      ${p.handDescription}
+                    </div>
+                  ` : ''}
                 </div>
               ` : ''}
             </div>
@@ -673,12 +909,12 @@ function showGame() {
 }
 
 function renderWinningHandInfo() {
-  if (!gameState.winningHandName) return '';
+  if (!gameState.winningHandDescription) return '';
   
   return `
     <div class="winning-hand-info">
       <h3 style="margin-top:0; color:#f1c40f; text-align:center;">🏆 ВЫИГРЫШНАЯ КОМБИНАЦИЯ</h3>
-      <div class="combination-name">${gameState.winningHandName}</div>
+      <div class="combination-name">${gameState.winningHandDescription}</div>
       <p style="color:#bdc3c7; text-align:center; margin:10px 0;">
         Лучшая рука за столом
       </p>
@@ -805,9 +1041,9 @@ function renderWinners() {
                 </div>
               ` : ''}
               
-              ${player?.handRank ? `
+              ${player?.handDescription ? `
                 <div style="color:#bdc3c7; margin-top:10px;">
-                  Комбинация: <strong style="color:#f1c40f;">${player.handRank}</strong>
+                  Комбинация: <strong style="color:#f1c40f;">${player.handDescription}</strong>
                 </div>
               ` : ''}
             </div>
@@ -977,10 +1213,64 @@ function submitBet() {
 socket.on('connect', () => {
   console.log('Connected to server');
   updateStatus('✅ Подключено к серверу');
+  
+  // После подключения проверяем, есть ли у пользователя ник
+  setTimeout(() => {
+    socket.emit('check_nickname_on_enter', { user: me });
+  }, 500);
 });
 
 socket.on('disconnect', () => {
   updateStatus('❌ Соединение потеряно. Переподключение...');
+});
+
+socket.on('nickname_check_result', (data) => {
+  console.log('Nickname check result:', data);
+  
+  if (data.nickname) {
+    me.name = data.nickname;
+    hasNickname = true;
+    showLobby();
+  } else if (data.displayName) {
+    me.name = data.displayName;
+    hasNickname = false;
+    // Показываем диалог ввода ника только если нет ника и нет Telegram username
+    if (!me.username) {
+      showNicknameDialog(true);
+    } else {
+      showLobby();
+    }
+  } else {
+    // Если ничего нет, показываем диалог ввода ника
+    showNicknameDialog(true);
+  }
+});
+
+socket.on('nickname_set', (data) => {
+  if (data.success) {
+    me.name = data.nickname;
+    hasNickname = true;
+    showLobby();
+  } else {
+    document.getElementById('nicknameError').textContent = data.error;
+  }
+});
+
+socket.on('nickname_info', (data) => {
+  if (data.nickname) {
+    me.name = data.nickname;
+    hasNickname = true;
+  }
+  showLobby();
+});
+
+socket.on('nickname_generated', (data) => {
+  if (data.nickname) {
+    document.getElementById('nicknameInput').value = data.nickname;
+    document.getElementById('nicknameError').textContent = '';
+  } else if (data.error) {
+    document.getElementById('nicknameError').textContent = data.error;
+  }
 });
 
 socket.on('room_joined', (r) => {
@@ -1033,9 +1323,22 @@ socket.on('error_msg', (msg) => {
   alert('❌ Ошибка: ' + msg);
 });
 
-// Инициализация
-showLobby();
+socket.on('hand_finished', (data) => {
+  console.log('Hand finished:', data);
+  if (gameState) {
+    gameState.finished = true;
+    gameState.winners = data.winners || [];
+    showGame();
+  }
+});
+
+// Инициализация - показываем загрузку до проверки ника
+document.getElementById('app').innerHTML = `
+  <div style="text-align:center; padding:50px;">
+    <h2 style="color:#2ecc71;">🎴 POKER ROYALE</h2>
+    <p style="color:#bdc3c7;">Загрузка...</p>
+  </div>
+`;
 </script>
 </body>
 </html>
-[file content end]
