@@ -933,11 +933,13 @@ function renderActions() {
   `;
 }
 
+// В index.html найдите функцию updateActions и замените ее:
+
 function updateActions() {
   if (!gameState) return;
   
   const meInGame = gameState.players.find(p => p.id === me.id);
-  if (!meInGame || meInGame.folded || meInGame.allIn) return;
+  if (!meInGame || meInGame.folded) return;
   
   const toCall = gameState.currentBet - meInGame.bet;
   const canCheck = toCall === 0;
@@ -951,66 +953,74 @@ function updateActions() {
   
   let actionsHTML = '';
   
-  if (toCall > 0) {
+  // Если игрок на all-in, показываем сообщение
+  if (isAllIn) {
+    actionsHTML = `
+      <div style="background:rgba(243, 156, 18, 0.3); padding:15px; border-radius:8px; text-align:center;">
+        <p style="color:#f39c12; font-size:16px; margin:0;">
+          ⚡ ВЫ НА ALL-IN ⚡
+        </p>
+        <p style="color:#bdc3c7; margin-top:8px; font-size:14px;">
+          Ожидайте завершения раздачи...
+        </p>
+      </div>
+    `;
+  } else {
+    // Показываем информацию о том, сколько нужно поставить
+    if (toCall > 0) {
+      actionsHTML += `
+        <div style="background:rgba(231, 76, 60, 0.2); padding:10px; border-radius:8px; margin-bottom:15px;">
+          <p style="margin:0; font-size:16px;">
+            Нужно поставить: <strong style="color:#e74c3c; font-size:18px;">${toCall}</strong> чтобы коллировать
+          </p>
+          <p style="margin:5px 0 0 0; font-size:14px; color:#bdc3c7;">
+            Текущая ставка: ${gameState.currentBet}, ваша ставка: ${meInGame.bet}
+          </p>
+        </div>
+      `;
+    }
+    
     actionsHTML += `
-      <div style="background:rgba(231, 76, 60, 0.2); padding:10px; border-radius:8px; margin-bottom:15px;">
-        <p style="margin:0; font-size:16px;">
-          Нужно поставить: <strong style="color:#e74c3c; font-size:18px;">${toCall}</strong> чтобы коллировать
-        </p>
-        <p style="margin:5px 0 0 0; font-size:14px; color:#bdc3c7;">
-          Текущая ставка: ${gameState.currentBet}, ваша ставка: ${meInGame.bet}
-        </p>
+      <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
+        <button onclick="fold()" class="btn-fold" style="flex:1; min-width:120px;">
+          ❌ ФОЛД
+        </button>
+        
+        ${canCheck ? `
+          <button onclick="check()" class="btn-check" style="flex:1; min-width:120px;">
+            ✓ ЧЕК
+          </button>
+        ` : ''}
+        
+        ${canCall ? `
+          <button onclick="call()" class="btn-call" style="flex:1; min-width:120px;">
+            📞 КОЛЛ (${toCall})
+          </button>
+        ` : ''}
+        
+        ${canBet ? `
+          <button onclick="showBetDialog('bet')" class="btn-bet" style="flex:1; min-width:120px;">
+            💰 БЕТ
+          </button>
+        ` : ''}
+        
+        ${canRaise ? `
+          <button onclick="showBetDialog('raise')" class="btn-raise" style="flex:1; min-width:120px;">
+            📈 РЕЙЗ
+          </button>
+        ` : ''}
+        
+        ${meInGame.chips > 0 ? `
+          <button onclick="allIn()" class="btn-allin" style="flex:1; min-width:120px;">
+            ⚡ ALL-IN (${meInGame.chips})
+          </button>
+        ` : ''}
       </div>
     `;
   }
   
-  actionsHTML += `
-    <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center;">
-      <!-- Фолд всегда доступен если не all-in -->
-      <button onclick="fold()" class="btn-fold" ${isAllIn ? 'disabled' : ''} style="flex:1; min-width:120px;">
-        ❌ ФОЛД
-      </button>
-      
-      <!-- Чек доступен если не нужно коллить -->
-      ${canCheck ? `
-        <button onclick="check()" class="btn-check" style="flex:1; min-width:120px;">
-          ✓ ЧЕК
-        </button>
-      ` : ''}
-      
-      <!-- Колл доступен если нужно поставить -->
-      ${canCall ? `
-        <button onclick="call()" class="btn-call" style="flex:1; min-width:120px;">
-          📞 КОЛЛ (${toCall})
-        </button>
-      ` : ''}
-      
-      <!-- Бет доступен только если никто еще не ставил на этой улице -->
-      ${canBet ? `
-        <button onclick="showBetDialog('bet')" class="btn-bet" style="flex:1; min-width:120px;">
-          💰 БЕТ
-        </button>
-      ` : ''}
-      
-      <!-- Рейз доступен если у игрока есть фишки для рейза -->
-      ${canRaise ? `
-        <button onclick="showBetDialog('raise')" class="btn-raise" style="flex:1; min-width:120px;">
-          📈 РЕЙЗ
-        </button>
-      ` : ''}
-      
-      <!-- All-in доступен если есть фишки -->
-      ${!isAllIn && meInGame.chips > 0 ? `
-        <button onclick="allIn()" class="btn-allin" style="flex:1; min-width:120px;">
-          ⚡ ALL-IN (${meInGame.chips})
-        </button>
-      ` : ''}
-    </div>
-  `;
-  
   actionsContainer.innerHTML = actionsHTML;
 }
-
 function renderWinners() {
   if (!gameState.winners || gameState.winners.length === 0) return '';
   

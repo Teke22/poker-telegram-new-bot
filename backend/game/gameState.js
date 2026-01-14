@@ -96,9 +96,9 @@ class GameState {
     this.dealerIndex = this._nextActivePlayer(this.dealerIndex);
     this._postBlinds();
 
-    // Определяем первого игрока для хода (после BB)
+    // Определяем первого игрока для хода (после BB, пропуская all-in игроков)
     const bbIndex = this.bbIndex;
-    this.currentPlayerIndex = this._nextActivePlayer(bbIndex);
+    this.currentPlayerIndex = this._nextActivePlayerExcludingAllIn(bbIndex);
 
     return true;
   }
@@ -194,36 +194,62 @@ class GameState {
     }
 
     // Проверяем, не завершилась ли игра после действия
-    this._checkForEarlyWinner();
-    
     if (!this.finished) {
-      // Если все активные игроки all-in, сразу идем в шоудаун
-      if (this._allPlayersAllIn()) {
-        console.log('Все активные игроки all-in, переход к шоудауну');
-        this._goToShowdown();
-      } else if (this._bettingRoundFinished()) {
-        this._nextStage();
-      } else {
-        this._moveToNextPlayer();
+      this._checkForEarlyWinner();
+      
+      if (!this.finished) {
+        // Если все активные игроки all-in, сразу идем в шоудаун
+        if (this._checkForAllInShowdown()) {
+          return;
+        } else if (this._bettingRoundFinished()) {
+          this._nextStage();
+        } else {
+          this._moveToNextPlayer();
+        }
       }
     }
+  }
+
+  _checkForAllInShowdown() {
+    const activePlayers = this.players.filter(p => !p.folded);
+    
+    // Если все активные игроки all-in
+    if (activePlayers.length > 0 && activePlayers.every(p => p.allIn)) {
+      console.log('Все активные игроки all-in, немедленный переход к шоудауну');
+      
+      // Добиваем карты до ривера если нужно
+      while (this.communityCards.length < 5) {
+        this.communityCards.push(this.deck.pop());
+      }
+      
+      this.stage = 'showdown';
+      this.finishShowdown();
+      return true;
+    }
+    
+    // Если только один активный игрок не all-in и он уже поставил
+    const notAllInPlayers = activePlayers.filter(p => !p.allIn);
+    if (notAllInPlayers.length === 1) {
+      const lastPlayer = notAllInPlayers[0];
+      if (lastPlayer.acted && lastPlayer.bet === this.currentBet) {
+        console.log('Последний не all-in игрок завершил ход, переход к шоудауну');
+        
+        while (this.communityCards.length < 5) {
+          this.communityCards.push(this.deck.pop());
+        }
+        
+        this.stage = 'showdown';
+        this.finishShowdown();
+        return true;
+      }
+    }
+    
+    return false;
   }
 
   _allPlayersAllIn() {
     const activePlayers = this.players.filter(p => !p.folded);
     return activePlayers.length > 0 && activePlayers.every(p => p.allIn);
-  }
-
-  _goToShowdown() {
-    console.log('Немедленный переход к шоудауну');
-    
-    // Добиваем карты до ривера если нужно
-    while (this.communityCards.length < 5) {
-      this.communityCards.push(this.deck.pop());
-    }
-    
-    this.stage = 'showdown';
-    this.finishShowdown();
   }
 
   _handleCall(player) {
@@ -343,7 +369,12 @@ class GameState {
   _nextStage() {
     console.log(`Переход на следующую улицу: ${this.stage} -> ${this._getNextStage()}`);
     
-    // Создаем side pots если нужно (при наличии олл-инов)
+    // Проверяем, не все ли игроки all-in
+    if (this._checkForAllInShowdown()) {
+      return;
+    }
+    
+    // Создаем side pots если нужно
     this._createSidePots();
 
     // Сбрасываем текущие ставки для следующей улицы
@@ -386,8 +417,21 @@ class GameState {
     }
 
     // Начинаем с первого активного игрока после дилера
-    this.currentPlayerIndex = this._nextActivePlayer(this.dealerIndex);
+    // Но пропускаем игроков на all-in
+    this.currentPlayerIndex = this._nextActivePlayerExcludingAllIn(this.dealerIndex);
     console.log(`Новый текущий игрок: ${this.players[this.currentPlayerIndex]?.name}`);
+  }
+
+  _goToShowdown() {
+    console.log('Немедленный переход к шоудауну');
+    
+    // Добиваем карты до ривера если нужно
+    while (this.communityCards.length < 5) {
+      this.communityCards.push(this.deck.pop());
+    }
+    
+    this.stage = 'showdown';
+    this.finishShowdown();
   }
 
   _getNextStage() {
@@ -486,120 +530,25 @@ class GameState {
   }
 
   _getHandDescription(hand) {
-  if (!hand) return 'Старшая карта';
-  
-  const name = hand.name;
-  const descr = hand.descr || '';
-  
-  // Русские названия комбинаций
-  const russianNames = {
-    'Straight Flush': 'Стрит-флеш',
-    'Four of a Kind': 'Каре',
-    'Full House': 'Фулл-хаус',
-    'Flush': 'Флеш',
-    'Straight': 'Стрит',
-    'Three of a Kind': 'Тройка',
-    'Two Pair': 'Две пары',
-    'Pair': 'Пара',
-    'High Card': 'Старшая карта'
-  };
-  
-  const russianName = russianNames[name] || name;
-  
-  if (!descr) return russianName;
-  
-  // Улучшаем читаемость описания
-  let cleanDescr = descr;
-  
-  // Убираем префикс типа комбинации
-  if (cleanDescr.startsWith(`${name}: `)) {
-    cleanDescr = cleanDescr.substring(`${name}: `.length);
+    if (!hand) return 'Старшая карта';
+    
+    const name = hand.name;
+    
+    // Русские названия комбинаций
+    const russianNames = {
+      'Straight Flush': 'Стрит-флеш',
+      'Four of a Kind': 'Каре',
+      'Full House': 'Фулл-хаус',
+      'Flush': 'Флеш',
+      'Straight': 'Стрит',
+      'Three of a Kind': 'Тройка',
+      'Two Pair': 'Две пары',
+      'Pair': 'Пара',
+      'High Card': 'Старшая карта'
+    };
+    
+    return russianNames[name] || name;
   }
-  
-  // Заменяем карты на русские названия
-  cleanDescr = cleanDescr
-    .replace(/J/g, 'Валет')
-    .replace(/Q/g, 'Дама')
-    .replace(/K/g, 'Король')
-    .replace(/A/g, 'Туз')
-    .replace(/T/g, '10');
-  
-  // Заменяем масти на символы
-  cleanDescr = cleanDescr
-    .replace(/s/g, '♠')
-    .replace(/h/g, '♥')
-    .replace(/d/g, '♦')
-    .replace(/c/g, '♣');
-  
-  // Убираем лишние символы и форматируем
-  cleanDescr = cleanDescr
-    .replace(/[,'"]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  // Форматируем в зависимости от типа комбинации
-  switch (name) {
-    case 'Straight Flush':
-    case 'Flush':
-    case 'Straight':
-      // Для этих комбинаций показываем высшую карту
-      const highestCardMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣])/);
-      if (highestCardMatch) {
-        return `${russianName}, ${highestCardMatch[0]}`;
-      }
-      break;
-      
-    case 'Four of a Kind':
-      // Каре: четыре карты + кикер
-      const fourMatch = cleanDescr.match(/([AКQJВДКТ0-9]+)/g);
-      if (fourMatch && fourMatch.length >= 2) {
-        return `${russianName}, ${fourMatch[0]}`;
-      }
-      break;
-      
-    case 'Full House':
-      // Фулл-хаус: тройка + пара
-      const fhMatch = cleanDescr.match(/([AКQJВДКТ0-9]+)/g);
-      if (fhMatch && fhMatch.length >= 2) {
-        return `${russianName}, ${fhMatch[0]} и ${fhMatch[1]}`;
-      }
-      break;
-      
-    case 'Three of a Kind':
-      // Тройка + кикеры
-      const threeMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣]?)/g);
-      if (threeMatch && threeMatch.length >= 1) {
-        return `${russianName}, ${threeMatch[0]}`;
-      }
-      break;
-      
-    case 'Two Pair':
-      // Две пары + кикер
-      const twoPairMatch = cleanDescr.match(/([AКQJВДКТ0-9]+)/g);
-      if (twoPairMatch && twoPairMatch.length >= 2) {
-        return `${russianName}, ${twoPairMatch[0]} и ${twoPairMatch[1]}`;
-      }
-      break;
-      
-    case 'Pair':
-      // Пара + кикеры
-      const pairMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣]?)/);
-      if (pairMatch) {
-        return `${russianName}, ${pairMatch[0]}`;
-      }
-      break;
-      
-    case 'High Card':
-      // Старшая карта
-      const highCardMatch = cleanDescr.match(/([AКQJВДКТ0-9]+[♠♥♦♣])/);
-      if (highCardMatch) {
-        return `${russianName}, ${highCardMatch[0]}`;
-      }
-      break;
-  }
-  
-  return cleanDescr ? `${russianName} (${cleanDescr})` : russianName;
-}
 
   _evaluateHand(player) {
     const allCards = [...player.hand, ...this.communityCards];
@@ -617,7 +566,6 @@ class GameState {
       console.error('Card strings:', cardStrings);
       console.error('Player cards:', player.hand);
       console.error('Community cards:', this.communityCards);
-      // В случае ошибки возвращаем базовую оценку
       return { name: 'High Card', descr: 'Старшая карта' };
     }
   }
@@ -724,28 +672,27 @@ class GameState {
       return true;
     }
     
-    // Иначе проверяем стандартные условия
-    const allDone = activePlayers.every(p => {
-      return p.allIn || (p.acted && p.bet === this.currentBet);
-    });
+    // Проверяем, завершили ли ход все не-all-in игроки
+    const notAllInPlayers = activePlayers.filter(p => !p.allIn);
+    const allNotAllInDone = notAllInPlayers.every(p => 
+      p.acted && p.bet === this.currentBet
+    );
     
-    console.log(`Раунд торговли завершен: ${allDone}`);
-    return allDone;
+    console.log(`Раунд торговли завершен: ${allNotAllInDone}, не all-in игроков: ${notAllInPlayers.length}`);
+    return allNotAllInDone;
   }
 
   _moveToNextPlayer() {
     const startIndex = this.currentPlayerIndex;
-    let nextIndex = this._nextActivePlayer(startIndex);
     
-    while (nextIndex !== startIndex) {
-      const player = this.players[nextIndex];
-      
-      if (!player.folded && !player.allIn && !player.acted) {
-        this.currentPlayerIndex = nextIndex;
-        console.log(`Новый текущий игрок: ${this.currentPlayerIndex} (${player.name})`);
-        return;
-      }
-      nextIndex = this._nextActivePlayer(nextIndex);
+    // Ищем следующего игрока, который не folded и не all-in
+    let nextIndex = this._nextActivePlayerExcludingAllIn(startIndex);
+    
+    // Если нашли игрока
+    if (nextIndex !== startIndex) {
+      this.currentPlayerIndex = nextIndex;
+      console.log(`Новый текущий игрок: ${this.currentPlayerIndex} (${this.players[nextIndex].name})`);
+      return;
     }
     
     // Если не нашли следующего игрока, проверяем завершение раунда
@@ -753,9 +700,28 @@ class GameState {
       this._nextStage();
     } else {
       console.log('Ошибка: не найден следующий игрок, но раунд не завершен!');
-      // Аварийный переход на следующую стадию
+      // Проверяем all-in сценарий
+      if (this._checkForAllInShowdown()) {
+        return;
+      }
       this._nextStage();
     }
+  }
+
+  _nextActivePlayerExcludingAllIn(from) {
+    let i = (from + 1) % this.players.length;
+    const start = i;
+    
+    do {
+      const player = this.players[i];
+      if (!player.folded && !player.allIn && !player.acted) {
+        return i;
+      }
+      i = (i + 1) % this.players.length;
+    } while (i !== start);
+    
+    // Если все игроки либо folded, либо all-in, либо acted
+    return this._nextActivePlayer(from);
   }
 
   _nextActivePlayer(from) {
