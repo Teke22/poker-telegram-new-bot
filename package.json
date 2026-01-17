@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "nanoid": "^5.1.6",
     "pokersolver": "^2.1.4"
   }
 }
