@@ -1,17 +1,22 @@
-const { createServer } = require('http');
 const express = require('express');
-const cors = require('cors');
+const http = require('http');
+const { Server } = require('socket.io');
 
-const setupHttp = require('./app/http');
-const setupSocket = require('./app/socket');
+const RoomManager = require('./rooms/RoomManager');
+const initSocket = require('./app/socket');
 
 const app = express();
-app.use(cors());
+const server = http.createServer(app);
+const io = new Server(server);
 
-setupHttp(app);
+// static frontend (если используется)
+app.use(express.static('../frontend'));
 
-const server = createServer(app);
-setupSocket(server);
+// создаём ОДИН экземпляр менеджера
+const roomManager = new RoomManager(io);
+
+// 🔴 ВАЖНО: передаём roomManager вторым аргументом
+initSocket(io, roomManager);
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {

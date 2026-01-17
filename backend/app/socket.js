@@ -1,11 +1,15 @@
 module.exports = function initSocket(io, roomManager) {
+  if (!roomManager) {
+    throw new Error('❌ roomManager is not provided to initSocket');
+  }
+
   io.on('connection', socket => {
     console.log('🟢 Socket connected:', socket.id);
 
-    // 🔴 ВАЖНО: без этого фронт "висит"
+    // подтверждение для фронта
     socket.emit('connected');
 
-    // старая логика
+    // биндим сокет к менеджеру комнат
     roomManager.bindSocket(socket);
 
     socket.on('disconnect', () => {
