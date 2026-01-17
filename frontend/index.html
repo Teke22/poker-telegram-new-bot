@@ -5,22 +5,27 @@
     <title>Poker</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     
-    <!-- Подключение библиотек -->
+    <!-- Telegram Mini App -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+    <!-- Socket.IO -->
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     
-    <!-- Подключение стилей -->
+    <!-- Styles -->
     <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
-    <!-- Статус бар -->
+    <!-- Status bar -->
     <div id="status" class="status">🎮 Подключение к игре...</div>
     
-    <!-- Основной контейнер приложения -->
+    <!-- App root -->
     <div id="app"></div>
     
-    <!-- Подключаем основной скрипт -->
-    <script src="poker-script.js"></script>
+    <!-- 🔴 СТАРОЕ (удалить) -->
+    <!-- <script src="poker-script.js"></script> -->
+
+    <!-- 🟢 НОВОЕ -->
+    <script type="module" src="src/app.js"></script>
 </body>
 </html>
