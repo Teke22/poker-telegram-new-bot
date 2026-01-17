@@ -1,11 +1,15 @@
-const { Server } = require('socket.io');
-const RoomManager = require('../rooms/RoomManager');
-
-module.exports = function setupSocket(server) {
-  const io = new Server(server, { cors: { origin: '*' } });
-  const rooms = new RoomManager(io);
-
+module.exports = function initSocket(io, roomManager) {
   io.on('connection', socket => {
-    rooms.bindSocket(socket);
+    console.log('🟢 Socket connected:', socket.id);
+
+    // 🔴 ВАЖНО: без этого фронт "висит"
+    socket.emit('connected');
+
+    // старая логика
+    roomManager.bindSocket(socket);
+
+    socket.on('disconnect', () => {
+      console.log('🔴 Socket disconnected:', socket.id);
+    });
   });
 };

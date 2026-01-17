@@ -1,14 +1,20 @@
-import { initUser } from './state/user.js';
-import { initSocket } from './socket/handlers.js';
+import { initSocket } from './socket/initSocket.js';
 import { showLobby } from './ui/lobby.js';
 
+const statusEl = document.getElementById('status');
+
+statusEl.innerText = '🎮 Подключение к игре...';
+
+const socket = io();
+
 export const state = {
-  me: initUser(),
-  room: null,
-  game: null,
-  myCards: [],
-  socket: null
+  socket,
+  roomId: null,
+  playerId: null,
 };
 
-initSocket(state);
-showLobby(state);
+// инициализация сокета
+initSocket(socket, state, () => {
+  statusEl.innerText = '🎮 Подключено';
+  showLobby(state);
+});

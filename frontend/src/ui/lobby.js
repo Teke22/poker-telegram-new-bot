@@ -2,17 +2,21 @@ export function showLobby(state) {
   const app = document.getElementById('app');
 
   app.innerHTML = `
-    <div style="text-align:center; padding:20px;">
-      <h1 style="color:#2ecc71;">🎴 POKER ROYALE</h1>
-
-      <button id="createRoomBtn"
-        style="padding:15px 30px; font-size:18px; margin-top:30px;">
-        🎮 СОЗДАТЬ КОМНАТУ
-      </button>
+    <div class="lobby">
+      <button id="createRoom">Создать комнату</button>
+      <input id="roomId" placeholder="ID комнаты" />
+      <button id="joinRoom">Войти</button>
     </div>
   `;
 
-  document.getElementById('createRoomBtn').onclick = () => {
-    state.socket.emit('create_room', { user: state.me });
+  document.getElementById('createRoom').onclick = () => {
+    state.socket.emit('room:create');
+  };
+
+  document.getElementById('joinRoom').onclick = () => {
+    const id = document.getElementById('roomId').value.trim();
+    if (id) {
+      state.socket.emit('room:join', id);
+    }
   };
 }
